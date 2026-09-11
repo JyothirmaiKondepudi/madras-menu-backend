@@ -1,0 +1,8 @@
+psycopg2-binary
+python-dotenv
+
+# Add one of these once a real LLM provider is wired into call_llm()
+# in propose_hierarchy.py — see DESIGN.md "Current status":
+# anthropic
+# google-genai
+# google-cloud-aiplatform
