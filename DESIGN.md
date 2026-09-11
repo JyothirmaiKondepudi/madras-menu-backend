@@ -45,7 +45,53 @@ docker compose up -d --build
 - `hierarchy/report.py` — renders a plain markdown report (valid edges, rejected proposals with why, duplicate clusters, items with no proposal) — this report **is** the review step right now, mirroring `madras-menu-studio`'s own draft → `/review` → promote pattern for menu items. Nothing gets written to any database from this code yet.
 - `propose_hierarchy.py` — the entry point. `--dry-run` uses a small hardcoded fixture (including a deliberate mutual-cycle case, to prove `validate.py` actually rejects it — and correctly rejects everything downstream of it too). A real run (no `--dry-run`) reads from `DATABASE_URL` via `psycopg2`; `call_llm()` currently raises `NotImplementedError` — **no LLM provider is wired up yet.**
 
-**How the first real batch actually got classified**: rather than waiting on GCP billing setup (in progress as of this writing) to wire up `call_llm()`, the 79 real seeded items were classified directly by Claude inline in a coding session — reading the real dish list, reasoning through parent/child candidates by hand, writing the result as a JSON proposals file, and running it through the *exact same* `validate_proposals`/`render_report` functions above. Zero API cost, proved the full pipeline end-to-end on real (if seed-scale) data. Result: 72 roots, 7 `parent_of` edges, 0 rejected, 0 duplicates found in this particular 79-item set. This doesn't scale to the real ~1,730+ item catalog (that needs an actual automated call — see below), but it validated the mechanism before spending any setup effort on a real provider integration.
+**How the first real batches actually got classified**: rather than waiting on GCP billing setup to wire up `call_llm()`, the real seeded items were classified directly by Claude inline in a coding session — reading the real dish list, reasoning through parent/child candidates by hand, writing the result as a JSON proposals file, and running it through the *exact same* `validate_proposals`/`render_report` functions above. Zero API cost. First pass: 79 items (72 roots, 7 edges). Second pass: pulled 150 more real items from the live catalog's `/api/menu-items` endpoint and reclassified all 229 together with full cross-visibility — which changed 4 earlier decisions once previously-invisible base items appeared (e.g. `Basmati Pilaf` moved from root to a child of the newly-visible `Basmati rice`). This doesn't scale to the real ~1,730+ item catalog by hand (that needs an actual automated call — see below), but it validated the mechanism, including that reclassification-on-more-context matters, before spending setup effort on a real provider integration.
+
+**The tree is now real, not just a report.** `item_relationships` exists in the local Docker Postgres DB (see below), with the partial unique index actually created and verified (a negative test — trying to insert a second `parent_of` edge for one dish — correctly failed with a constraint violation). As of the second real-data batch: **379 real items loaded, 50 `parent_of` edges**. Each new batch is classified against the *full* current item set (not independently), and reclassifies earlier decisions when a previously-invisible base item appears — e.g. `Chicken 65 with Southern Spices` and the `Chocolate Fondue Bar...` item both moved from root to children once their plain base dishes showed up in a later batch. Full classification output for each batch: `examples/*_item_classification*.md`.
+
+**A real, recurring data-quality signal worth a human pass eventually**: near-duplicate dish names that differ only by spelling (not caught by the exact-match `dedupe.py`) show up in every batch — `Aloo Gobi`/`Aloo Gobhi`, `Boondi Raita`/`Boondi Raitha`, `Chicken Biryani`/`Chicken Biriyani`, `Chicken Makhani`/`Chicken Makhni`, and four different spellings of the same chickpea-and-fried-bread combo (`Chole and Batura`/`Chole-Batura`/`Chole Bhatura`/`Cholle Bhature`) as of this writing. These are flagged in each report's root notes but never forced into a `parent_of` edge — that would misuse the hierarchy for what's really a merge/dedup problem.
+
+## Traversal example — DFS from staple root dishes
+
+`hierarchy/traverse.py` is real database code (not report generation) — a depth-first walk down `item_relationships` from a given root, following `parent_of` edges to their children. Run against every `is_staple = true` dish that's currently a parent of something in the tree:
+
+```
+7 staple dishes are a parent of something in the current tree:
+
+- Assorted Chutneys
+  - Assorted Chutney Bar
+  - Assorted Chutney Display
+  - Assorted Chutney Station
+
+- Assorted Paratha
+  - Aloo Paratha
+
+- Assorted Tandoori Breads
+  - Assorted Tandoori Breads Live
+  - Assorted Tandoori Breads & Stuffed Naans
+
+- Basmati Pilaf
+  - Basmati Peas Pilaf
+  - Basmati Pilaf in Traditional Mini Pots
+  - Basmati Vegetable Pilaf
+  - Vegetable Pilaf
+
+- Basmati rice
+  - Basmati Pilaf
+    - Basmati Peas Pilaf
+    - Basmati Pilaf in Traditional Mini Pots
+    - Basmati Vegetable Pilaf
+    - Vegetable Pilaf
+  - Basmati Rice topped with Roasted Almonds
+
+- Chili Powder
+  - Chilli Powder (shaker)
+
+- Freshly Baked Naan
+  - Butter Naan
+```
+
+Note `Basmati Pilaf`'s subtree prints twice — once on its own (it's a staple with children in its own right) and again nested under `Basmati rice` (also a staple, and `Basmati Pilaf`'s own parent). That's correct, not a bug: the query finds every qualifying staple independently and walks each one fresh, so a staple that is itself a child of another staple naturally shows up in both places.
 
 ## Next steps (not yet done)
 

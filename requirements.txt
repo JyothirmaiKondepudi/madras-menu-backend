@@ -1,4 +1,4 @@
-psycopg2-binary
+psycopg2-binary   # used directly now by hierarchy/traverse.py (propose_hierarchy.py's --dry-run path doesn't need it)
 python-dotenv
 
 # Add one of these once a real LLM provider is wired into call_llm()
