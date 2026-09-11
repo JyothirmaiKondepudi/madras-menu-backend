@@ -1,0 +1,19 @@
+services:
+  postgres:
+    build: ./docker
+    container_name: madras-postgres
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: madras_menu_local
+    ports:
+      # Host 5433 -> container 5432, so this never conflicts with
+      # Postgres.app (which still owns 5432 if it's running).
+      - "5433:5432"
+    volumes:
+      # Named volume, managed by Docker itself — not a path on the laptop's
+      # own filesystem — which is the thing actually worth testing against
+      # the "Postgres.app is extremely slow" complaint.
+      - madras_pgdata:/var/lib/postgresql/data
+
+volumes:
+  madras_pgdata:

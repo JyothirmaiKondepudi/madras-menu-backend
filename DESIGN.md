@@ -27,6 +27,15 @@ The outside-engineer recommendation behind this ("every menu needs a decision tr
 - **Exact duplicates are not a hierarchy relationship.** Case/whitespace-only duplicate dish names (a real problem in the live catalog — e.g. `"Aloo baingan masala"` vs `"Aloo Baingan Masala"`) are caught deterministically before any LLM call, not left to the LLM to notice, and are never written as `parent_of` edges — they're a separate merge/dedup concern (see `hierarchy/dedupe.py`).
 - **Local-first.** All of this was designed and tested against a local Postgres (`madras_menu_local`, Postgres.app), seeded from the existing `madras-menu-studio` repo's own dev fixture (`prisma/seed-data/menu_items_seed.json`, 79 items) via `prisma db push`. The shared Neon/Supabase DB the live app runs on was never touched. GCP Cloud SQL provisioning is a distinct, later step — no GCP project exists yet as of this writing (billing setup is pending).
 
+## Local dev database
+
+Runs via Docker now (`docker-compose.yml` + `docker/Dockerfile`), not Postgres.app — switched because Postgres.app was noticeably slow on this machine. The image is `pgvector/pgvector:pg16` (pgvector pre-installed and pre-enabled via `docker/init/01-enable-pgvector.sql`, even though nothing here uses vectors yet — see the Dockerfile's own comment for why baking it in now saves a rebuild+reload later). Listens on host port `5433` (not `5432`, to avoid clashing with Postgres.app if it's still around). Data lives in a Docker-managed named volume (`madras_pgdata`), not a path on the laptop's own disk.
+
+```bash
+cd ~/madras-menu-backend
+docker compose up -d --build
+```
+
 ## Current status — what's actually built
 
 - `hierarchy/schema.py` — the provider-agnostic JSON response shape every LLM call must produce: one proposal per dish (`item_id`, `parent_id` or `null`, `reason`, `confidence`).
