@@ -91,6 +91,22 @@ docker compose up -d --build
   - Butter Naan
 ```
 
+**Worked example — why the tree doesn't need category nodes.** A natural question: shouldn't `Basmati rice` have a `Biryani` node grouping `Chicken Biryani`/`Goat Biryani`/etc. before branching to specific proteins, the same way `Basmati Pilaf` groups the pilaf variants? Checked against the real catalog: no bare `Biryani` dish exists — only qualified ones (`Chicken Biryani`, `Goat Biryani`...). Inventing a `Biryani` node purely to organize others would reverse the "dishes are nodes, not categories" decision from earlier in this doc. It also turns out to be unnecessary: `course = 'rice_biryani'` already groups every biryani dish as a flat query, so the tree doesn't need a redundant way to answer the same question. Resolution: `Chicken Biryani` connects **directly** to `Basmati rice` as a sibling of `Basmati Pilaf`, keeping its own child (`Chicken Biryani on the bone`) beneath it —
+
+```
+- Basmati rice
+  - Basmati Pilaf
+    - Basmati Peas Pilaf
+    - Basmati Pilaf in Traditional Mini Pots
+    - Basmati Vegetable Pilaf
+    - Vegetable Pilaf
+  - Basmati Rice topped with Roasted Almonds
+  - Chicken Biryani
+    - Chicken Biryani on the bone
+```
+
+Not everything "rice" belongs here, though — `Tamarind rice`, `Curd Rice`, `Lemon Rice` are traditionally plain-rice preparations, not basmati, and correctly stay as separate roots rather than being force-fit under `Basmati rice` just because they share the word "rice."
+
 Note `Basmati Pilaf`'s subtree prints twice — once on its own (it's a staple with children in its own right) and again nested under `Basmati rice` (also a staple, and `Basmati Pilaf`'s own parent). That's correct, not a bug: the query finds every qualifying staple independently and walks each one fresh, so a staple that is itself a child of another staple naturally shows up in both places.
 
 ## Next steps (not yet done)
