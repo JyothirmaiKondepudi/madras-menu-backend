@@ -121,6 +121,29 @@ def _mermaid_safe_label(name: str) -> str:
     return name.replace('"', "'")
 
 
+def render_mermaid_subtree(cur, root_id: str, root_name: str) -> str:
+    """Mermaid diagram for ONE root's subtree only — legible on GitHub,
+    unlike cramming all 33 disconnected trees into a single canvas (GitHub
+    scales the whole diagram to fit the page width regardless of how many
+    unrelated pieces are in it, so more trees per diagram means smaller
+    text, not a bigger picture)."""
+    node_id = {root_id: "n0"}
+
+    def walk(pid: str, pname: str) -> list[str]:
+        edges = []
+        p = node_id[pid]
+        for cid, cname in get_children(cur, pid):
+            if cid not in node_id:
+                node_id[cid] = f"n{len(node_id)}"
+            c = node_id[cid]
+            edges.append(f'    {p}["{_mermaid_safe_label(pname)}"] --> {c}["{_mermaid_safe_label(cname)}"]')
+            edges.extend(walk(cid, cname))
+        return edges
+
+    lines = ["```mermaid", "graph TD"] + walk(root_id, root_name) + ["```"]
+    return "\n".join(lines)
+
+
 def render_mermaid(cur) -> str:
     """The full forest as a Mermaid flowchart (`graph TD`) — GitHub renders
     this natively inside a ```mermaid fenced block, no image file needed."""
