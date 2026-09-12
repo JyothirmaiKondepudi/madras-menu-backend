@@ -52,6 +52,22 @@ ORDER BY parent, child;
 
 then `SELECT child, parent, confidence FROM item_relationships_readable;` in `psql`. Not declared in `schema.prisma`, so it won't show up in Prisma Studio — and it needs recreating any time the Docker volume is wiped, since it isn't captured by `db push`/`db seed`.
 
+## The classification pipeline, step by step
+
+Six steps, looping back to the first for each new batch of dishes:
+
+```mermaid
+graph TD
+    A["Fetch new batch<br/>~150 items from the live catalog"] --> B["Dedupe<br/>exact-match duplicates set aside"]
+    B --> C["Classify<br/>LLM proposes each item's parent"]
+    C --> D["Validate<br/>reject unknown ids, cycles, self-parents"]
+    D --> E["Human review<br/>read the report, catch reasoning mistakes"]
+    E --> F["Apply<br/>insert_edge / update_edge writes it in"]
+    F -.->|repeats per batch| A
+```
+
+Two things worth being explicit about, since they're easy to miss just from the boxes: **Classify** is the one step not yet automated — every real batch so far has been Claude reasoning through it by hand in a coding session, not a live API call (see "What's actually built" below for why). **Human review** isn't a formality between two automated steps — it's the step that's actually caught real mistakes (the `Wada`/`Vada Pav` cuisine mismatch, several near-duplicate spelling clusters) — nothing skips it, even once classification itself is automated.
+
 ## What's actually built
 
 - `hierarchy/schema.py` — the provider-agnostic JSON response shape every classification call must produce: one proposal per dish (`item_id`, `parent_id` or `null`, `reason`, `confidence`).
@@ -60,7 +76,7 @@ then `SELECT child, parent, confidence FROM item_relationships_readable;` in `ps
 - `hierarchy/validate.py` — validates every proposal before it's trusted: unknown item/parent ids, self-parenting, and cycles (walks the full proposed-parent chain, so an item downstream of a broken cycle is correctly rejected too, not just the two nodes directly in it).
 - `hierarchy/report.py` — renders a plain markdown report (valid edges, rejected proposals with why, duplicate clusters) — this **is** the review step today, mirroring `madras-menu-studio`'s own draft → `/review` → promote pattern.
 - `hierarchy/traverse.py` — real database code (`psycopg2`), not report generation: depth-first traversal of the live tree, plus Mermaid diagram generation (see below).
-- `hierarchy/mutations.py` — `insert_edge`/`update_edge`/`delete_edge`: real, tested CRUD for the tree, operating directly against the database rather than a hand-maintained tracking file. Each validates existence, self-parenting, and cycles before writing. `insert_edge` deliberately refuses to overwrite an existing edge (raises `HierarchyError` instead) — reclassifying an item is `update_edge`, a distinct, explicit action.
+- `hierarchy/mutations.py` — `insert_edge`/`update_edge`/`delete_edge`: real, tested CRUD for the tree, operating directly against the database rather than a hand-maintained tracking file. Each validates existence, self-parenting, and cycles before writing. `insert_edge` deliberately refuses to overwrite an existing edge (raises `HierarchyError` instead) — reclassifying an item is `update_edge`, a distinct, explicit action. `delete_node` removes an entire dish from the tree (not just one edge) by **reparenting its children to its own parent** rather than cascading the delete or refusing outright — deliberate, not a universal tree-deletion rule: it relies on our edges meaning "is a more specific variant of," where skipping a deleted intermediate dish and pointing its children one level higher is still an accurate (if less precise) statement. Doesn't delete the `menu_items` row itself, only its position in the hierarchy. Tested against a real 3-level chain (delete-then-verify-then-restore), confirmed to reparent correctly and leave the deleted node as a true orphan (0 edges either direction, dish record untouched).
 - `propose_hierarchy.py` — the entry point. `--dry-run` uses a hardcoded fixture (including a deliberate cycle, proving `validate.py` rejects it and everything downstream of it). A real run reads from `DATABASE_URL`; `call_llm()` currently raises `NotImplementedError` — **no LLM provider is wired up yet.**
 
 **How real data actually got classified so far**: rather than waiting on GCP billing to wire up `call_llm()`, every batch below was classified directly by Claude in a coding session — reading the real dish list, reasoning through parent/child candidates by hand, writing the result as a JSON proposals file, and running it through the exact same `validate_proposals`/`render_report` functions the real pipeline will use. Zero API cost; this doesn't scale to the full ~1,456-item catalog by hand forever (see Next steps), but it validated the mechanism — including that classifying with full context matters (see below) — before spending setup effort on a provider integration.

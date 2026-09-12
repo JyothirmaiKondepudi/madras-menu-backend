@@ -133,6 +133,66 @@ def update_edge(
     return cur.fetchone()[0]
 
 
+def delete_node(cur, item_id: str, relationship_type: str = "parent_of") -> dict:
+    """
+    Delete an entire dish from the tree (not just one edge) — removes its
+    own parent edge, if any, AND reparents every one of its children to
+    ITS parent (grandparent-of-the-deleted-node), rather than cascading
+    to delete the whole subtree or refusing outright.
+
+    This is a deliberate choice, not a universal rule: it relies on our
+    edges meaning "is a more specific variant of," where skipping a
+    deleted intermediate dish and pointing its children one level higher
+    is still a true (if less precise) statement — e.g. if `Basmati Pilaf`
+    is deleted, `Basmati Peas Pilaf -> Basmati rice` is still accurate.
+    That property doesn't hold for every kind of tree (a filesystem path
+    or an org chart doesn't reparent this way), so don't reuse this
+    function's behavior as a general pattern without re-checking that
+    assumption holds for whatever the tree represents.
+
+    Does NOT delete the menu_items row itself — this only removes it from
+    the hierarchy; deleting the actual dish record is a separate concern
+    the caller can layer on top of this (or not) as it sees fit.
+
+    Returns {"parent_id": <id or None>, "reparented_children": [<ids>]}.
+    """
+    parent_id = _existing_parent(cur, item_id, relationship_type)
+    cur.execute(
+        "SELECT from_item_id FROM item_relationships WHERE to_item_id = %s AND relationship_type = %s",
+        (item_id, relationship_type),
+    )
+    child_ids = [row[0] for row in cur.fetchall()]
+
+    # Remove the deleted node's own edge (if it had a parent).
+    cur.execute(
+        "DELETE FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",
+        (item_id, relationship_type),
+    )
+
+    reparented = []
+    if parent_id is not None:
+        # This node was itself a child — reattach its children to ITS
+        # parent (the grandparent), preserving them as roots only if the
+        # deleted node had no parent of its own (handled by the else
+        # branch below implicitly, since update_edge only runs here).
+        for child_id in child_ids:
+            update_edge(
+                cur, child_id, parent_id, relationship_type,
+                reason=f"reparented one level up after its direct parent was deleted from the tree",
+            )
+            reparented.append(child_id)
+    # else: the deleted node was itself a root — its children simply
+    # become new roots (delete_edge below already removed any edge they
+    # might have had FROM the deleted node; nothing more to do, since
+    # there's no grandparent to reattach them to).
+    else:
+        for child_id in child_ids:
+            delete_edge(cur, child_id, relationship_type)
+            reparented.append(child_id)
+
+    return {"parent_id": parent_id, "reparented_children": reparented}
+
+
 def delete_edge(cur, child_id: str, relationship_type: str = "parent_of") -> bool:
     """Remove child_id's edge, making it a root again. Returns True if a
     row was actually deleted, False if it had no such edge to begin with
