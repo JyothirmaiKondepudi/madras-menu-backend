@@ -114,11 +114,56 @@ def render_full_forest(cur) -> str:
     return "\n".join(lines)
 
 
+def _mermaid_safe_label(name: str) -> str:
+    """Mermaid flowchart node labels are wrapped in ["..."] — escape the one
+    character that actually breaks that (a literal double quote); commas,
+    parens, &, /, apostrophes are all fine inside it."""
+    return name.replace('"', "'")
+
+
+def render_mermaid(cur) -> str:
+    """The full forest as a Mermaid flowchart (`graph TD`) — GitHub renders
+    this natively inside a ```mermaid fenced block, no image file needed."""
+    cur.execute(
+        """
+        SELECT c.id, c.name, p.id, p.name
+        FROM item_relationships r
+        JOIN menu_items c ON c.id = r.from_item_id
+        JOIN menu_items p ON p.id = r.to_item_id
+        WHERE r.relationship_type = 'parent_of'
+        ORDER BY p.name, c.name
+        """
+    )
+    edges = cur.fetchall()
+
+    # Mermaid node ids must be simple tokens, not the dishes' real uuids
+    # with hyphens (hyphens are fine, but keeping this independent of the
+    # id format is safer) — assign short n0, n1, ... ids per distinct dish.
+    node_id = {}
+
+    def get_node_id(real_id: str, name: str) -> str:
+        if real_id not in node_id:
+            node_id[real_id] = f"n{len(node_id)}"
+        return node_id[real_id]
+
+    lines = ["```mermaid", "graph TD"]
+    for child_id, child_name, parent_id, parent_name in edges:
+        p = get_node_id(parent_id, parent_name)
+        c = get_node_id(child_id, child_name)
+        lines.append(f'    {p}["{_mermaid_safe_label(parent_name)}"] --> {c}["{_mermaid_safe_label(child_name)}"]')
+    lines.append("```")
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--out",
         help="Write the full-forest DFS snapshot to this file (markdown) instead of printing staple-rooted subtrees to stdout.",
+    )
+    parser.add_argument(
+        "--mermaid",
+        help="Write a Mermaid flowchart diagram of the full forest to this file (renders natively on GitHub).",
     )
     args = parser.parse_args()
 
@@ -126,6 +171,21 @@ def main() -> None:
         "DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/madras_menu_local"
     )
     with psycopg2.connect(database_url) as conn, conn.cursor() as cur:
+        if args.mermaid:
+            cur.execute("SELECT count(*) FROM menu_items")
+            (item_count,) = cur.fetchone()
+            cur.execute("SELECT count(*) FROM item_relationships WHERE relationship_type = 'parent_of'")
+            (edge_count,) = cur.fetchone()
+            content = (
+                f"# Dish hierarchy — diagram ({date.today().isoformat()})\n\n"
+                f"{item_count} menu items loaded, {edge_count} parent_of edges.\n\n"
+                + render_mermaid(cur)
+            )
+            with open(args.mermaid, "w") as f:
+                f.write(content + "\n")
+            print(f"Wrote Mermaid diagram to {args.mermaid}")
+            return
+
         if args.out:
             content = render_full_forest(cur)
             with open(args.out, "w") as f:
