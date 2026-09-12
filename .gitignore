@@ -3,7 +3,11 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.local
 *.egg-info/
 
 # Generated reports — reproducible from propose_hierarchy.py, not source
 hierarchy_report*.md
+
+# Database dumps — real data, shared directly, not committed
+*.sql
