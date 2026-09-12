@@ -1,0 +1,152 @@
+"""
+Real, reusable CRUD for the tree — insert / update / delete a single
+parent_of edge, each going through the same validation every time instead
+of a fresh ad-hoc script per batch (which is what every batch so far
+actually did, and how the tracking-file drift bug happened: the
+diff/insert logic was hand-rolled each round instead of being one tested
+function).
+
+These operate directly against the database (psycopg2), not against a
+proposals JSON file — the database is the only source of truth here,
+which is also the fix for the drift bug: nothing needs a separate
+"tracking file" kept in sync by hand anymore.
+"""
+
+import psycopg2
+
+
+class HierarchyError(Exception):
+    """Raised when a mutation would violate the tree's rules — never let
+    these fall through as a raw IntegrityError from Postgres."""
+
+
+def _item_exists(cur, item_id: str) -> bool:
+    cur.execute("SELECT 1 FROM menu_items WHERE id = %s", (item_id,))
+    return cur.fetchone() is not None
+
+
+def _existing_parent(cur, child_id: str, relationship_type: str = "parent_of") -> str | None:
+    cur.execute(
+        "SELECT to_item_id FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",
+        (child_id, relationship_type),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _would_create_cycle(cur, child_id: str, new_parent_id: str, relationship_type: str = "parent_of") -> bool:
+    """Walk new_parent_id's own ancestor chain — if child_id shows up
+    anywhere in it, accepting this edge would create a cycle. Mirrors
+    validate.py's _find_cycle, but reads the live DB instead of an
+    in-memory proposals dict."""
+    current = new_parent_id
+    seen = set()
+    for _ in range(10_000):  # generous bound; a real cycle would be caught long before this
+        if current == child_id:
+            return True
+        if current in seen:
+            return False  # a pre-existing cycle elsewhere, not one this edge creates
+        seen.add(current)
+        current = _existing_parent(cur, current, relationship_type)
+        if current is None:
+            return False  # reached a root — no cycle
+    return True  # exceeded bound — treat as a cycle to be safe
+
+
+def insert_edge(
+    cur,
+    child_id: str,
+    parent_id: str,
+    relationship_type: str = "parent_of",
+    confidence: str | None = None,
+    reason: str | None = None,
+) -> str:
+    """Add a NEW edge. Raises HierarchyError if child/parent don't exist,
+    child would be its own parent, this would create a cycle, or the
+    child already has an edge of this relationship_type (use update_edge
+    for that — this is insert, not upsert, on purpose, so a caller can't
+    silently overwrite an existing classification by accident).
+    Returns the new edge's id."""
+    if not _item_exists(cur, child_id):
+        raise HierarchyError(f"child_id {child_id} does not exist in menu_items")
+    if not _item_exists(cur, parent_id):
+        raise HierarchyError(f"parent_id {parent_id} does not exist in menu_items")
+    if child_id == parent_id:
+        raise HierarchyError("an item cannot be its own parent")
+    if _existing_parent(cur, child_id, relationship_type) is not None:
+        raise HierarchyError(
+            f"{child_id} already has a {relationship_type!r} edge — use update_edge to change it, not insert_edge"
+        )
+    if _would_create_cycle(cur, child_id, parent_id, relationship_type):
+        raise HierarchyError(f"linking {child_id} -> {parent_id} would create a cycle")
+
+    cur.execute(
+        """
+        INSERT INTO item_relationships (id, from_item_id, to_item_id, relationship_type, metadata)
+        VALUES (gen_random_uuid(), %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (child_id, parent_id, relationship_type, _metadata_json(confidence, reason)),
+    )
+    return cur.fetchone()[0]
+
+
+def update_edge(
+    cur,
+    child_id: str,
+    new_parent_id: str,
+    relationship_type: str = "parent_of",
+    confidence: str | None = None,
+    reason: str | None = None,
+) -> str:
+    """Reclassify: change child_id's existing edge to point at
+    new_parent_id instead (this is exactly the operation every
+    "Basmati Pilaf", "Bombay Sandwiches", etc. reclassification in this
+    project's history actually needed — previously done by hand each
+    time). Works whether or not child_id already had an edge. Returns the
+    edge's id."""
+    if not _item_exists(cur, child_id):
+        raise HierarchyError(f"child_id {child_id} does not exist in menu_items")
+    if not _item_exists(cur, new_parent_id):
+        raise HierarchyError(f"new_parent_id {new_parent_id} does not exist in menu_items")
+    if child_id == new_parent_id:
+        raise HierarchyError("an item cannot be its own parent")
+
+    # Temporarily remove the old edge before the cycle check, so
+    # reclassifying to the same neighborhood isn't falsely rejected as a
+    # cycle against itself.
+    cur.execute(
+        "DELETE FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",
+        (child_id, relationship_type),
+    )
+    if _would_create_cycle(cur, child_id, new_parent_id, relationship_type):
+        raise HierarchyError(f"linking {child_id} -> {new_parent_id} would create a cycle")
+
+    cur.execute(
+        """
+        INSERT INTO item_relationships (id, from_item_id, to_item_id, relationship_type, metadata)
+        VALUES (gen_random_uuid(), %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (child_id, new_parent_id, relationship_type, _metadata_json(confidence, reason)),
+    )
+    return cur.fetchone()[0]
+
+
+def delete_edge(cur, child_id: str, relationship_type: str = "parent_of") -> bool:
+    """Remove child_id's edge, making it a root again. Returns True if a
+    row was actually deleted, False if it had no such edge to begin with
+    (not an error — deleting something already absent is a no-op)."""
+    cur.execute(
+        "DELETE FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",
+        (child_id, relationship_type),
+    )
+    return cur.rowcount > 0
+
+
+def _metadata_json(confidence: str | None, reason: str | None) -> str | None:
+    import json
+
+    if confidence is None and reason is None:
+        return None
+    return json.dumps({"confidence": confidence, "reason": reason})
