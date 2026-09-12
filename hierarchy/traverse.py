@@ -10,7 +10,9 @@ cycle check should have caught it before any edge was written) — `visited`
 is a defensive backstop, not a substitute for that check.
 """
 
+import argparse
 import os
+from datetime import date
 
 import psycopg2
 
@@ -47,6 +49,30 @@ def dfs(cur, root_id: str, root_name: str, depth: int = 0, visited: set | None =
     return lines
 
 
+def find_true_roots(cur) -> list[tuple[str, str]]:
+    """Every node that has at least one child (is a to_item_id somewhere)
+    but is NOT itself a child of anything (never appears as a from_item_id
+    in a parent_of edge). This is the actual top of each tree in the
+    forest — DFS from each of these covers every node in the current
+    hierarchy exactly once, unlike find_staple_roots() above, which can
+    print the same subtree twice (once on its own, once nested under a
+    higher staple that is also its parent — see the Basmati Pilaf example
+    in DESIGN.md)."""
+    cur.execute(
+        """
+        SELECT DISTINCT m.id, m.name
+        FROM item_relationships r
+        JOIN menu_items m ON m.id = r.to_item_id
+        WHERE r.relationship_type = 'parent_of'
+          AND m.id NOT IN (
+              SELECT from_item_id FROM item_relationships WHERE relationship_type = 'parent_of'
+          )
+        ORDER BY m.name
+        """
+    )
+    return cur.fetchall()
+
+
 def find_staple_roots(cur) -> list[tuple[str, str]]:
     """Staple dishes (is_staple=true) that are actually a parent of
     something in the current tree — i.e. worth using as a DFS starting
@@ -63,11 +89,50 @@ def find_staple_roots(cur) -> list[tuple[str, str]]:
     return cur.fetchall()
 
 
+def render_full_forest(cur) -> str:
+    """Every tree in the current forest, each true root walked exactly
+    once — the full, non-redundant hierarchy as it stands right now."""
+    cur.execute("SELECT count(*) FROM menu_items")
+    (item_count,) = cur.fetchone()
+    cur.execute("SELECT count(*) FROM item_relationships WHERE relationship_type = 'parent_of'")
+    (edge_count,) = cur.fetchone()
+
+    roots = find_true_roots(cur)
+    lines = [
+        f"# Dish hierarchy — DFS snapshot ({date.today().isoformat()})",
+        "",
+        f"- {item_count} menu items loaded",
+        f"- {edge_count} parent_of edges",
+        f"- {len(roots)} root nodes in the current forest",
+        "",
+        "```",
+    ]
+    for root_id, root_name in roots:
+        lines.extend(dfs(cur, root_id, root_name))
+        lines.append("")
+    lines.append("```")
+    return "\n".join(lines)
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out",
+        help="Write the full-forest DFS snapshot to this file (markdown) instead of printing staple-rooted subtrees to stdout.",
+    )
+    args = parser.parse_args()
+
     database_url = os.environ.get(
         "DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/madras_menu_local"
     )
     with psycopg2.connect(database_url) as conn, conn.cursor() as cur:
+        if args.out:
+            content = render_full_forest(cur)
+            with open(args.out, "w") as f:
+                f.write(content + "\n")
+            print(f"Wrote full-forest DFS snapshot to {args.out}")
+            return
+
         roots = find_staple_roots(cur)
         print(f"{len(roots)} staple dishes are a parent of something in the current tree:\n")
         for root_id, root_name in roots:

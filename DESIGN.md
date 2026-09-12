@@ -51,6 +51,22 @@ docker compose up -d --build
 
 **A real, recurring data-quality signal worth a human pass eventually**: near-duplicate dish names that differ only by spelling (not caught by the exact-match `dedupe.py`) show up in every batch — `Aloo Gobi`/`Aloo Gobhi`, `Boondi Raita`/`Boondi Raitha`, `Chicken Biryani`/`Chicken Biriyani`, `Chicken Makhani`/`Chicken Makhni`, and four different spellings of the same chickpea-and-fried-bread combo (`Chole and Batura`/`Chole-Batura`/`Chole Bhatura`/`Cholle Bhature`) as of this writing. These are flagged in each report's root notes but never forced into a `parent_of` edge — that would misuse the hierarchy for what's really a merge/dedup problem.
 
+## Spot-checking the tree by eye
+
+`item_relationships` only stores ids, which are useless for eyeballing directly. A read-only view resolves them to names:
+
+```sql
+CREATE OR REPLACE VIEW item_relationships_readable AS
+SELECT r.id, c.name AS child, p.name AS parent, r.relationship_type,
+       r.metadata->>'confidence' AS confidence, r.metadata->>'reason' AS reason, r.created_at
+FROM item_relationships r
+JOIN menu_items c ON c.id = r.from_item_id
+JOIN menu_items p ON p.id = r.to_item_id
+ORDER BY parent, child;
+```
+
+Query it directly: `SELECT child, parent, confidence FROM item_relationships_readable;` — not declared in `schema.prisma`, so it won't show up in Prisma Studio's table list, only via `psql` or a SQL tool's raw query view. Re-run the `CREATE OR REPLACE VIEW` above any time the Docker volume is recreated from scratch (it isn't persisted the way table data is via seed scripts).
+
 ## Traversal example — DFS from staple root dishes
 
 `hierarchy/traverse.py` is real database code (not report generation) — a depth-first walk down `item_relationships` from a given root, following `parent_of` edges to their children. Run against every `is_staple = true` dish that's currently a parent of something in the tree:
