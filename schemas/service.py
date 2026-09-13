@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from typing import Literal
@@ -20,8 +20,7 @@ class ServiceOut(BaseModel):
     maxPricePerPerson: float | None = None
     project: ProjectOut
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ServiceCreate(BaseModel):

@@ -32,14 +32,9 @@ def update_project_by_project_id(project_id, updates: ProjectUpdate, db: Session
     if project is None:
         return None
 
-    project.projectName = updates.projectName
-    project.projectStatus = updates.projectStatus
-    project.projectStartDate = updates.projectStartDate
-    project.clientId = updates.clientId
-    project.projectEndDate = updates.projectEndDate
-    project.project_invoice = updates.project_invoice
+    for field, value in updates.model_dump(exclude_unset=True).items():
+        setattr(project, field, value)
 
-    print(f"updated Project: {updates}")
     db.commit()
     db.refresh(project)
     return project

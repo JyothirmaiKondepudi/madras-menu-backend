@@ -20,7 +20,10 @@ def getServiceByProjectId(project_id:UUID, db: Session=Depends(get_db)):
 
 @router.get("/services/{service_id}", response_model=ServiceOut)
 def get_service_by_id(service_id:UUID, db:Session= Depends(get_db)):
-     return get_service_by_service_id(service_id, db)
+     service = get_service_by_service_id(service_id, db)
+     if service is None:
+         raise HTTPException(status_code=404, detail="service not found")
+     return service
 
 @router.post("/services", response_model=ServiceOut)
 def add_service(new_service: ServiceCreate, db:Session= Depends(get_db)):

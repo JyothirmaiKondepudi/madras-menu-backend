@@ -15,7 +15,10 @@ def get_invoices(db: Session= Depends(get_db)):
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceOut)
 def getinvoiceById(invoice_id:UUID, db:Session= Depends(get_db)):
-     return get_invoice_by_id(invoice_id, db)
+     invoice = get_invoice_by_id(invoice_id, db)
+     if invoice is None:
+         raise HTTPException(status_code=404, detail="invoice not found")
+     return invoice
 
 @router.post("/invoices", response_model=InvoiceOut)
 def add_invoice(new_invoice: InvoiceCreate, db:Session= Depends(get_db)):

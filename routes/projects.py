@@ -19,7 +19,10 @@ def getProjectsByUserID(user_id:UUID, db: Session=Depends(get_db)):
 
 @router.get("/projects/{project_id}", response_model=ProjectOut)
 def getProjectById(project_id:UUID, db:Session= Depends(get_db)):
-     return get_project_by_id(project_id, db)
+     project = get_project_by_id(project_id, db)
+     if project is None:
+         raise HTTPException(status_code=404, detail="project not found")
+     return project
 
 @router.post("/projects", response_model=ProjectOut)
 def add_project(new_project: ProjectCreate, db:Session= Depends(get_db)):

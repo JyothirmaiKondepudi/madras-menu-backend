@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from typing import Literal
@@ -17,8 +17,7 @@ class ProjectOut(BaseModel):
     client: UserOut
     admin: UserOut | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 
@@ -34,9 +33,9 @@ class ProjectCreate(BaseModel):
 
 class ProjectUpdate(BaseModel):
     projectName :str | None = None
-    projectStatus: Literal['Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete']
-    projectStartDate:datetime 
-    projectEndDate :datetime
-    adminOnProject :UUID
-    clientId :UUID
+    projectStatus: Literal['Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete'] | None = None
+    projectStartDate: datetime | None = None
+    projectEndDate: datetime | None = None
+    adminOnProject: UUID | None = None
+    clientId: UUID | None = None
     project_invoice: UUID | None = None

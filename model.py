@@ -1,5 +1,6 @@
 from sqlalchemy import *
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
 import uuid
 from database import Base
@@ -66,3 +67,63 @@ class Service(Base):
     maxPricePerPerson = Column('max_price_per_person', Float)
 
     project = relationship('Project')
+
+
+# --- Ported from madras-menu-studio's Prisma schema (owned there, not by this
+# repo's Alembic migrations) — mapped read/write against the existing tables,
+# matching their real column types (text ids, not UUID) exactly. ---
+
+class TaxCategory(Base):
+    __tablename__ = 'tax_categories'
+
+    id = Column("id", String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column("name", String, nullable=False, unique=True)
+    jurisdiction = Column("jurisdiction", String, nullable=False)
+    ratePercent = Column("rate_percent", Numeric(5, 3), nullable=False)
+    effectiveDate = Column("effective_date", DateTime, default=datetime.now, server_default=func.now(), nullable=False)
+
+
+class MenuItem(Base):
+    __tablename__ = 'menu_items'
+
+    id = Column("id", String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column("name", String, nullable=False, unique=True)
+    course = Column("course", String, nullable=False)
+    vegNonveg = Column("veg_nonveg", String, nullable=False)
+    cuisineTags = Column("cuisine_tags", ARRAY(String))
+    priceWeight = Column("price_weight", String, nullable=False)
+    isStaple = Column("is_staple", Boolean, nullable=False, default=False)
+    servedAsLiveStation = Column("served_as_live_station", Boolean, nullable=False, default=False)
+    allergens = Column("allergens", ARRAY(String))
+    dietaryFlags = Column("dietary_flags", ARRAY(String))
+    religionSuitability = Column("religion_suitability", ARRAY(String))
+    occasionSuitability = Column("occasion_suitability", ARRAY(String))
+    spiceLevel = Column("spice_level", String)
+    prepMethod = Column("prep_method", String)
+    portionUnit = Column("portion_unit", String)
+    costPerPerson = Column("cost_per_person", Numeric(8, 2))
+    taxCategoryId = Column("tax_category_id", String, ForeignKey('tax_categories.id'))
+    active = Column("active", Boolean, nullable=False, default=True)
+    confidence = Column("confidence", String)
+    sourceDocs = Column("source_docs", ARRAY(String))
+    createdAt = Column("created_at", DateTime, default=datetime.now, server_default=func.now(), nullable=False)
+    updatedAt = Column("updated_at", DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+
+class ItemRelationship(Base):
+    __tablename__ = 'item_relationships'
+    __table_args__ = (
+        Index(
+            'item_relationships_one_parent_per_child',
+            'from_item_id',
+            unique=True,
+            postgresql_where=text("relationship_type = 'parent_of'"),
+        ),
+    )
+
+    id = Column("id", String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    fromItemId = Column("from_item_id", String, ForeignKey('menu_items.id'), nullable=False)
+    toItemId = Column("to_item_id", String, ForeignKey('menu_items.id'), nullable=False)
+    relationshipType = Column("relationship_type", String, nullable=False)
+    relationshipMetadata = Column("metadata", JSONB)
+    createdAt = Column("created_at", DateTime, default=datetime.now, server_default=func.now(), nullable=False)
