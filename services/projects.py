@@ -1,4 +1,4 @@
-from model import Project
+from models import Project
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from schemas.project import ProjectUpdate

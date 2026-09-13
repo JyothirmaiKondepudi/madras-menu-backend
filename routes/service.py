@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from services.service import *
 from fastapi import APIRouter, Depends, HTTPException
-from model import Service
+from models import Service
 from schemas.service import ServiceOut, ServiceCreate, ServiceUpdate
 from database import get_db
 from uuid import UUID

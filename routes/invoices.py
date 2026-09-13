@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from services.invoices import *
 from fastapi import APIRouter, Depends, HTTPException
-from model import Invoice
+from models import Invoice
 from schemas.invoice import InvoiceOut, InvoiceCreate, InvoiceUpdate
 from database import get_db
 from uuid import UUID

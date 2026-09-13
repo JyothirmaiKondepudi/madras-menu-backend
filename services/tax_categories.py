@@ -1,4 +1,4 @@
-from model import TaxCategory
+from models import TaxCategory
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

@@ -1,4 +1,4 @@
-from model import MenuItem
+from models import MenuItem
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

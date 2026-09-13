@@ -7,12 +7,12 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# so `from database import Base` / `import model` resolve when alembic is
+# so `from database import Base` / `import models` resolve when alembic is
 # invoked from the project root (they aren't on sys.path by default)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import Base  # noqa: E402
-import model  # noqa: E402, F401 — registers every ORM class on Base.metadata
+import models  # noqa: E402, F401 — registers every ORM class on Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -31,6 +31,41 @@ if config.config_file_name is not None:
 # add your model's MetaData object here
 # for 'autogenerate' support
 target_metadata = Base.metadata
+
+# Tables this app's Alembic migrations are actually allowed to create/alter/
+# drop. Every other table in the database — madras-menu-studio's Prisma-owned
+# ones (menu_items, item_relationships, tax_categories included, even though
+# they have SQLAlchemy models here for querying — see models/tax_category.py
+# and models/menu_item.py's own comments) plus the 11+ Prisma tables with
+# no model here at all (users, events,
+# occasions, price_tiers, ...) — must never be touched by autogenerate.
+#
+# This isn't just belt-and-suspenders: the very first autogenerate run
+# against this database proposed dropping all 14 Prisma tables, because
+# SQLAlchemy's metadata didn't declare them. That was caught by hand-editing
+# the diff before applying it — a real near-miss, and with these two schemas
+# now coexisting permanently (not just during a transition), relying on
+# catching it by eye on every future autogenerate isn't a strong enough
+# safety net. This allowlist makes the exclusion structural instead:
+# non-owned tables are excluded from comparison entirely, so they can never
+# appear in a generated diff in the first place, no matter how a future
+# autogenerate pass gets reviewed (or isn't).
+OWNED_TABLES = {"user_data", "projects", "invoices", "services", "user_projects"}
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    # `include_name` looked like the right hook but isn't: it excludes a
+    # table from whichever single side (reflected DB vs. target metadata)
+    # is being iterated at the time, not both symmetrically — which made
+    # tax_categories/menu_items/item_relationships (modeled here for
+    # querying, but reflected as already existing in the real DB) show up
+    # as "needs to be created", the opposite of what's needed.
+    # include_object is checked per comparison pair (reflected vs.
+    # metadata together), so excluding by name here actually removes the
+    # table from consideration on both sides at once.
+    if type_ == "table":
+        return name in OWNED_TABLES
+    return True
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -56,6 +91,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -77,7 +113,7 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, target_metadata=target_metadata, include_object=include_object
         )
 
         with context.begin_transaction():

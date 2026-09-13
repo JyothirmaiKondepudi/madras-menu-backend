@@ -1,4 +1,4 @@
-from model import ItemRelationship
+from models import ItemRelationship
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

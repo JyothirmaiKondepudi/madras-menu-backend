@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from services.projects import *
 from fastapi import APIRouter, Depends, HTTPException
-from model import Project
+from models import Project
 from schemas.project import ProjectOut, ProjectCreate, ProjectUpdate
 from database import get_db
 from uuid import UUID

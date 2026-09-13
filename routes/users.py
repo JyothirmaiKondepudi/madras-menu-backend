@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from services.users import *
 from fastapi import APIRouter, Depends, HTTPException
-from model import User
+from models import User
 from schemas.user import UserOut, UserCreate, UserUpdate
 from database import get_db
 from uuid import UUID

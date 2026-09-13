@@ -1,4 +1,4 @@
-from model import Project, Service
+from models import Project, Service
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
