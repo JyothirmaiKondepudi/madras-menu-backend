@@ -4,6 +4,7 @@ fastapi
 pydantic
 sqlalchemy
 uvicorn
+alembic
 
 # Add one of these once a real LLM provider is wired into call_llm()
 # in propose_hierarchy.py — see DESIGN.md "Current status":

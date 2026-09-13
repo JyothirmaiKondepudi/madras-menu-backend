@@ -4,8 +4,15 @@ from datetime import datetime
 from typing import Literal
 
 class ProjectOut(BaseModel):
-    projectName: str
     projectId: UUID
+    projectName: str
+    projectStatus: Literal['Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete']
+    projectStartDate: datetime
+    projectEndDate: datetime
+    adminOnProject: UUID | None = None
+    clientId: UUID
+    project_invoice: UUID | None = None
+
     class Config:
         from_attributes = True
 
@@ -15,17 +22,17 @@ class ProjectCreate(BaseModel):
     projectName :str
     projectStatus: Literal['Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete']
     projectStartDate:datetime 
-    projectEndDate :datetime.now
+    projectEndDate :datetime
     adminOnProject :UUID
     clientId :UUID
-    project_invoice: UUID
+    project_invoice: UUID | None = None
 
 
 class ProjectUpdate(BaseModel):
     projectName :str | None = None
     projectStatus: Literal['Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete']
     projectStartDate:datetime 
-    projectEndDate :datetime.now
+    projectEndDate :datetime
     adminOnProject :UUID
     clientId :UUID
-    project_invoice: UUID
+    project_invoice: UUID | None = None
