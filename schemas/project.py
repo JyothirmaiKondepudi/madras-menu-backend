@@ -3,6 +3,8 @@ from uuid import UUID
 from datetime import datetime
 from typing import Literal
 
+from schemas.user import UserOut
+
 class ProjectOut(BaseModel):
     projectId: UUID
     projectName: str
@@ -12,6 +14,8 @@ class ProjectOut(BaseModel):
     adminOnProject: UUID | None = None
     clientId: UUID
     project_invoice: UUID | None = None
+    client: UserOut
+    admin: UserOut | None = None
 
     class Config:
         from_attributes = True

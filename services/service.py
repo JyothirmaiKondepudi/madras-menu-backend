@@ -1,12 +1,22 @@
-from model import Service
-from sqlalchemy.orm import Session
+from model import Project, Service
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
+
+# shared by every query that returns a ServiceOut, since it now nests
+# project -> client / admin
+_WITH_PROJECT_AND_USERS = joinedload(Service.project).options(
+    joinedload(Project.client),
+    joinedload(Project.admin),
+)
 
 
 def get_all_services(db: Session):
-    return db.query(Service).all()
+    return db.execute(
+        select(Service).options(_WITH_PROJECT_AND_USERS)
+    ).scalars().all()
 
 def get_service_by_service_id(service_id, db: Session):
-    return db.query(Service).get(service_id)
+    return db.get(Service, service_id, options=[_WITH_PROJECT_AND_USERS])
 
 def add_new_service(new_service, db: Session):
     created_service = Service(
@@ -28,7 +38,7 @@ def add_new_service(new_service, db: Session):
     return created_service
 
 def update_service_by_service_id(service_id, updates, db: Session):
-    service = db.query(Service).get(service_id)
+    service = db.get(Service, service_id)
     if service is None:
         return None
 
@@ -40,10 +50,17 @@ def update_service_by_service_id(service_id, updates, db: Session):
     return service
 
 def delete_service_by_service_id(service_id, db: Session):
-    service = db.query(Service).get(service_id)
+    service = db.get(Service, service_id)
     if service is None:
         return None
 
     db.delete(service)
     db.commit()
     return service
+
+def get_all_services_by_project_id(project_id, db: Session):
+    return db.execute(
+        select(Service)
+        .where(Service.projectAssociatedTo == project_id)
+        .options(_WITH_PROJECT_AND_USERS)
+    ).scalars().all()

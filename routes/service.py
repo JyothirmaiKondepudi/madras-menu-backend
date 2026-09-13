@@ -13,6 +13,11 @@ def get_services(db: Session= Depends(get_db)):
     services = get_all_services(db)
     return services
 
+@router.get("/services/projects/{project_id}", response_model=list[ServiceOut])
+def getServiceByProjectId(project_id:UUID, db: Session=Depends(get_db)):
+    services = get_all_services_by_project_id(project_id, db)
+    return services
+
 @router.get("/services/{service_id}", response_model=ServiceOut)
 def get_service_by_id(service_id:UUID, db:Session= Depends(get_db)):
      return get_service_by_service_id(service_id, db)

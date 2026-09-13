@@ -1,4 +1,5 @@
 from sqlalchemy import *
+from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
 from database import Base
@@ -28,6 +29,9 @@ class Project(Base):
     adminOnProject = Column("admin_on_project",UUID(as_uuid=True), ForeignKey('user_data.user_id'))
     clientId = Column("client_id", UUID(as_uuid=True), ForeignKey('user_data.user_id'), nullable=False)
     project_invoice = Column('projectInvoice', UUID(as_uuid=True), ForeignKey('invoices.invoice_id'))
+
+    client = relationship('User', foreign_keys=[clientId])
+    admin = relationship('User', foreign_keys=[adminOnProject])
 
 
 user_projects = Table(
@@ -60,3 +64,5 @@ class Service(Base):
     serviceEvent = Column('service_event', Enum('breakfast', 'wedding Lunch', 'Wedding Dinner', 'Anniversary', 'birthday', 'cockatail hour', 'mehendi', 'haldi', 'ceremony refreshments', 'vidai', 'welcome dinner', 'welcome lunch', 'baarat', 'Walima', 'Graduation', 'house Warming', 'High tea' ,name='event_enum'), nullable=False)
     minPricePerPerson = Column('min_price_per_person', Float)
     maxPricePerPerson = Column('max_price_per_person', Float)
+
+    project = relationship('Project')

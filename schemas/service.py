@@ -3,6 +3,8 @@ from uuid import UUID
 from datetime import datetime
 from typing import Literal
 
+from schemas.project import ProjectOut
+
 class ServiceOut(BaseModel):
     serviceId: UUID
     serviceName: str
@@ -16,6 +18,7 @@ class ServiceOut(BaseModel):
     serviceEvent: Literal['breakfast', 'wedding Lunch', 'Wedding Dinner', 'Anniversary', 'birthday', 'cockatail hour', 'mehendi', 'haldi', 'ceremony refreshments', 'vidai', 'welcome dinner', 'welcome lunch', 'baarat', 'Walima', 'Graduation', 'house Warming', 'High tea']
     minPricePerPerson: float | None = None
     maxPricePerPerson: float | None = None
+    project: ProjectOut
 
     class Config:
         from_attributes = True

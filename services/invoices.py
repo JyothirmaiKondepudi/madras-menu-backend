@@ -1,13 +1,14 @@
 from model import Invoice
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from schemas.invoice import InvoiceUpdate
 
 
 def get_all_invoices(db: Session):
-    return db.query(Invoice).all()
+    return db.execute(select(Invoice)).scalars().all()
 
 def get_invoice_by_id(invoice_id, db: Session):
-    return db.query(Invoice).get(invoice_id)
+    return db.get(Invoice, invoice_id)
 
 def add_new_invoice(new_invoice, db: Session):
     created_invoice = Invoice(
@@ -21,7 +22,7 @@ def add_new_invoice(new_invoice, db: Session):
     return created_invoice
 
 def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session):
-    invoice = db.query(Invoice).get(invoice_id)
+    invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         return None
 
@@ -33,7 +34,7 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
     return invoice
 
 def delete_invoice_by_invoice_id(invoice_id, db: Session):
-    invoice = db.query(Invoice).get(invoice_id)
+    invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         return None
 

@@ -13,6 +13,10 @@ def get_projects(db: Session= Depends(get_db)):
     projects = get_all_projects(db)
     return projects
 
+@router.get("/projects/users/{user_id}", response_model=list[ProjectOut])
+def getProjectsByUserID(user_id:UUID, db: Session=Depends(get_db)):
+    return get_all_projects_by_user_id(user_id, db)
+
 @router.get("/projects/{project_id}", response_model=ProjectOut)
 def getProjectById(project_id:UUID, db:Session= Depends(get_db)):
      return get_project_by_id(project_id, db)

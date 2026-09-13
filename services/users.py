@@ -1,4 +1,5 @@
 from model import User
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from schemas.user import UserUpdate
 
@@ -13,16 +14,18 @@ USER_FIELD_MAP = {
 }
 
 def get_all_users(db:Session):
-    return db.query(User).all()
+    return db.execute(select(User)).scalars().all()
 
 def get_user_by_user_id(user_id, db:Session):
-    return db.query(User).get(user_id)
+    return db.get(User, user_id)
 
 def add_new_user(user, db:Session):
-    existing_user = db.query(User).filter_by(userEmail=user.email).first()
+    existing_user = db.execute(
+        select(User).where(User.userEmail == user.email)
+    ).scalars().first()
     if existing_user is not None:
         return None
-    
+
     print(f" {user.email} is not an exsiting user. creating anew user. ")
     created_user = User(
         fullName=user.fullName,
@@ -39,7 +42,7 @@ def add_new_user(user, db:Session):
     return created_user
 
 def update_user_by_user_id(user_id, updates: UserUpdate, db: Session):
-    user = db.query(User).get(user_id)
+    user = db.get(User, user_id)
     if user is None:
         return None
 
@@ -51,7 +54,7 @@ def update_user_by_user_id(user_id, updates: UserUpdate, db: Session):
     return user
 
 def delete_user_by_user_id(user_id, db: Session):
-    user = db.query(User).get(user_id)
+    user = db.get(User, user_id)
     if user is None:
         return None
 
