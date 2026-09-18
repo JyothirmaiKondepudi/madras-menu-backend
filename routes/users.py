@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from services.users import *
 from fastapi import APIRouter, Depends, HTTPException
-from model import User
+from models import User
 from schemas.user import UserOut, UserCreate, UserUpdate
 from database import get_db
 from uuid import UUID
@@ -15,7 +15,10 @@ def get_users(db: Session= Depends(get_db)):
 
 @router.get("/users/{user_id}", response_model=UserOut)
 def get_user_by_id(user_id:UUID, db:Session= Depends(get_db)):
-     return get_user_by_user_id(user_id, db)
+     user = get_user_by_user_id(user_id, db)
+     if user is None:
+         raise HTTPException(status_code=404, detail="User not found")
+     return user
 
 @router.post("/users", response_model=UserOut)
 def add_user(new_user: UserCreate, db:Session= Depends(get_db)):

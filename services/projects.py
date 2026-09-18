@@ -1,56 +1,54 @@
-from model import Project
+from models import Project
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from schemas.project import ProjectUpdate
 
-# maps each ProjectUpdate/ProjectCreate field name to the ORM attribute it corresponds to
-PROJECT_FIELD_MAP = {
-    "projectName": "fullName",
-    
-}
 
 def get_all_projects(db:Session):
-    return db.query(Project).all()
+    return db.execute(select(Project)).scalars().all()
 
 def get_project_by_id(project_id, db:Session):
-    return db.query(Project).get(project_id)
+    return db.get(Project, project_id)
 
-def add_new_Project(project, db:Session):
-    existing_Project = db.query(Project).filter_by(projectId=project.).first()
-    if existing_Project is not None:
-        return None
-    
-    print(f" {Project.email} is not an exsiting Project. creating anew Project. ")
+def add_new_Project(newProject, db:Session):
+
     created_Project = Project(
-        fullName=Project.fullName,
-        ProjectEmail=Project.email,
-        ProjectPhoneNumber=Project.phoneNumber,
-        preferredContact=Project.preferredContact,
-        ProjectAddress=Project.address,
-        ProjectRole=Project.role,
+        projectName=newProject.projectName,
+        projectStatus=newProject.projectStatus,
+        projectStartDate=newProject.projectStartDate,
+        projectEndDate=newProject.projectEndDate,
+        adminOnProject=newProject.adminOnProject,
+        clientId=newProject.clientId,
+        project_invoice=newProject.project_invoice,
     )
     db.add(created_Project)
     db.commit()
-    print(f"commited to databse succesfully")
+    print(f"commited to database succesfully")
     db.refresh(created_Project)
     return created_Project
 
-def update_Project_by_Project_id(Project_id, updates: ProjectUpdate, db: Session):
-    Project = db.query(Project).get(Project_id)
-    if Project is None:
+def update_project_by_project_id(project_id, updates: ProjectUpdate, db: Session):
+    project = db.get(Project, project_id)
+    if project is None:
         return None
 
     for field, value in updates.model_dump(exclude_unset=True).items():
-        setattr(Project, Project_FIELD_MAP[field], value)
-    print(f"updated Project: {updates}")
-    db.commit()
-    db.refresh(Project)
-    return Project
+        setattr(project, field, value)
 
-def delete_Project_by_Project_id(Project_id, db: Session):
-    Project = db.query(Project).get(Project_id)
-    if Project is None:
+    db.commit()
+    db.refresh(project)
+    return project
+
+def delete_Project_by_Project_id(project_id, db: Session):
+    project = db.get(Project, project_id)
+    if project is None:
         return None
 
-    db.delete(Project)
+    db.delete(project)
     db.commit()
-    return Project
+    return project
+
+def get_all_projects_by_user_id(user_id, db:Session):
+    return db.execute(
+        select(Project).where(Project.clientId == user_id)
+    ).scalars().all()

@@ -29,6 +29,12 @@ The outside-engineer recommendation behind this ("every menu needs a decision tr
 - **Cuisine/course tags stay flat, on purpose.** `Tamarind rice`, `Curd Rice`, `Lemon Rice` share the word "rice" but are traditionally plain-rice preparations, not basmati — they correctly stay separate roots rather than being force-fit under `Basmati rice`. Word overlap is not evidence of a real hierarchy relationship (`Vada Pav` — a Maharashtrian potato fritter — shares the word "vada" with the unrelated South Indian lentil-donut `Wada`; a keyword match would have wrongly linked them).
 - **Local-first.** Designed and tested against local Postgres, never the shared Neon/Supabase DB the live app runs on. GCP Cloud SQL provisioning is a distinct, later step — no GCP project exists yet.
 
+## Schema ownership — a deliberate fork from Prisma, not a port
+
+This repo's SQLAlchemy models (`user_data`, `projects`, `invoices`, `services`) are a **new domain model, built independently as needed** — not a port of `madras-menu-studio`'s `Event`/`Occasion`/`PriceTier`. That earlier plan (port the existing Prisma schema unchanged) is explicitly abandoned; the design has changed enough that these two schemas now coexist permanently in the same database rather than one replacing the other on a timeline.
+
+`tax_categories`, `menu_items`, and `item_relationships` are the one exception — modeled here in SQLAlchemy too, but only for querying/writing against Prisma's existing tables, never for Alembic to alter. **`alembic/env.py` enforces this structurally**, not just by convention: an `include_object` hook restricts every autogenerate diff to an explicit `OWNED_TABLES` allowlist (`user_data`, `projects`, `invoices`, `services`, `user_projects`). This exists because the very first autogenerate run — before this hook — proposed dropping all 14 of `madras-menu-studio`'s Prisma-managed tables, since nothing in this app's metadata declared them yet. That was caught by hand before applying it, but with the two schemas now coexisting indefinitely, "catch it by eye every time" isn't a strong enough safety net — verified afterward with a real autogenerate run: before the fix, `tax_categories`/`menu_items`/`item_relationships` incorrectly showed up as "detected added table" (a different symptom of the same underlying problem — `include_name`, tried first, excludes a table from only one side of the reflected-vs-metadata comparison, not both); switching to `include_object` produces a genuinely empty diff against the real database.
+
 ## Local dev database
 
 Runs via Docker (`docker-compose.yml` + `docker/Dockerfile`) — switched from Postgres.app because it was noticeably slow on this machine. Image is `pgvector/pgvector:pg16` (pgvector pre-installed and pre-enabled via `docker/init/01-enable-pgvector.sql`, even though nothing here uses vectors yet — cheap to bake in now versus a rebuild+reload later when the embeddings work starts). Listens on host port `5433` (not `5432`, so it never conflicts with Postgres.app). Data lives in a Docker-managed named volume, not a path on the laptop's disk.
@@ -54,19 +60,7 @@ then `SELECT child, parent, confidence FROM item_relationships_readable;` in `ps
 
 ## The classification pipeline, step by step
 
-Six steps, looping back to the first for each new batch of dishes:
-
-```mermaid
-graph TD
-    A["Fetch new batch<br/>~150 items from the live catalog"] --> B["Dedupe<br/>exact-match duplicates set aside"]
-    B --> C["Classify<br/>LLM proposes each item's parent"]
-    C --> D["Validate<br/>reject unknown ids, cycles, self-parents"]
-    D --> E["Human review<br/>read the report, catch reasoning mistakes"]
-    E --> F["Apply<br/>insert_edge / update_edge writes it in"]
-    F -.->|repeats per batch| A
-```
-
-Two things worth being explicit about, since they're easy to miss just from the boxes: **Classify** is the one step not yet automated — every real batch so far has been Claude reasoning through it by hand in a coding session, not a live API call (see "What's actually built" below for why). **Human review** isn't a formality between two automated steps — it's the step that's actually caught real mistakes (the `Wada`/`Vada Pav` cuisine mismatch, several near-duplicate spelling clusters) — nothing skips it, even once classification itself is automated.
+Moved to [`docs/ETL_PIPELINE.md`](docs/ETL_PIPELINE.md) — the full elaborate version, covering both how the tree actually got to 682 items (the manual pipeline) and the embedding-driven design being built now (every stage mapped to its real FastAPI endpoint, including the node/self-parent/cycle checks and the exact `item_relationships` write path).
 
 ## What's actually built
 
