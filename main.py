@@ -11,6 +11,7 @@ from routes.service import router as service_router
 from routes.menu_items import router as menu_items_router
 from routes.tax_categories import router as tax_categories_router
 from routes.item_relationships import router as item_relationships_router
+from embeddings.routes import router as embeddings_router
 from hierarchy.mutations import HierarchyError
 
 # Schema is now managed by Alembic migrations (see alembic/versions/), not
@@ -27,6 +28,7 @@ app.include_router(service_router)
 app.include_router(menu_items_router)
 app.include_router(tax_categories_router)
 app.include_router(item_relationships_router)
+app.include_router(embeddings_router)
 
 
 # --- Global error handling --------------------------------------------------
@@ -58,6 +60,21 @@ def handle_operational_error(request: Request, exc: OperationalError):
     return JSONResponse(
         status_code=503,
         content={"detail": "Database is currently unavailable. Please try again shortly."},
+    )
+
+
+@app.exception_handler(ConnectionError)
+def handle_ollama_connection_error(request: Request, exc: ConnectionError):
+    # Ollama itself isn't reachable — raised as a plain builtins.ConnectionError
+    # by langchain-ollama/the ollama client, confirmed by actually triggering
+    # it (Ollama wasn't installed on this machine at the time this was
+    # written), not guessed at. Distinct from OperationalError (Postgres
+    # down) — this is specifically the embedding/classification model being
+    # unavailable, not the database.
+    logger.error("ConnectionError (likely Ollama unreachable) on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The embedding/LLM service (Ollama) is currently unavailable. Please try again shortly."},
     )
 
 

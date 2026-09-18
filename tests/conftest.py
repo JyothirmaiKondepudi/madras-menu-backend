@@ -7,7 +7,7 @@ os.environ["DATABASE_URL"] = os.environ.get(
 )
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
@@ -21,6 +21,14 @@ TEST_DATABASE_URL = os.environ["DATABASE_URL"]
 @pytest.fixture(scope="session")
 def engine():
     eng = create_engine(TEST_DATABASE_URL)
+    # menu_item_embeddings needs the pgvector extension — enabled on
+    # madras_menu_local via the Docker init script at first container boot,
+    # but never automatically on a separately-created test database. Without
+    # this, Base.metadata.create_all() below fails with "type vector does
+    # not exist" the first time a fresh test DB is used (hit for real: a
+    # freshly-created madras_menu_test on this machine didn't have it).
+    with eng.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(eng)
     yield eng
     Base.metadata.drop_all(eng)
