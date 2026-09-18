@@ -83,3 +83,9 @@ flowchart TD
 | `DELETE` | `/item-relationships/nodes/{item_id}` | remove an item from the hierarchy entirely, reparenting its children |
 
 The last three already exist and are tested (`tests/test_item_relationships.py`); `/menu-items/{id}/embedding` and `/embeddings/search` are the two new ones this design calls for.
+
+## Current status
+
+`menu_item_embeddings` is real — created via a genuine Alembic migration (`alembic/versions/4821e0dd3b67_...py`), verified with an actual `pgvector` similarity query (not just a structure check), then emptied back out since that test row wasn't a real embedding. `embeddings/model.py` holds the SQLAlchemy model. One real bug caught along the way, worth remembering: Alembic's autogenerate referenced the `Vector` column type without importing it in the generated migration file — a known gap with custom column types — caught by reading the diff before applying it, not by running it and hoping.
+
+**Still pending, blocking the rest of this pipeline**: Ollama isn't installed on this machine yet (`ollama pull nomic-embed-text` / `ollama pull llama3.1:8b`) — the `embeddings/service.py` (generation + search) and `embeddings/routes.py` (the two new endpoints) haven't been written yet, since there's no way to verify them against a real model until then.

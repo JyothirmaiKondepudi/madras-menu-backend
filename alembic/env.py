@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import Base  # noqa: E402
 import models  # noqa: E402, F401 — registers every ORM class on Base.metadata
+import embeddings.model  # noqa: E402, F401 — registers MenuItemEmbedding too
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -50,7 +51,7 @@ target_metadata = Base.metadata
 # non-owned tables are excluded from comparison entirely, so they can never
 # appear in a generated diff in the first place, no matter how a future
 # autogenerate pass gets reviewed (or isn't).
-OWNED_TABLES = {"user_data", "projects", "invoices", "services", "user_projects"}
+OWNED_TABLES = {"user_data", "projects", "invoices", "services", "user_projects", "menu_item_embeddings"}
 
 
 def include_object(object, name, type_, reflected, compare_to):

@@ -6,9 +6,10 @@ sqlalchemy
 uvicorn
 alembic
 langchain-ollama
+pgvector   # SQLAlchemy Vector column type, for embeddings/model.py
 
 # Add one of these once a real LLM provider is wired into call_llm()
-# in propose_hierarchy.py — see DESIGN.md "Current status":
+# in propose_hierarchy.py — see README.md "What's actually built":
 # anthropic
 # google-genai
 # google-cloud-aiplatform
