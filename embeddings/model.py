@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, func
+from sqlalchemy import Column, String, DateTime, ForeignKey, Index, func
 from pgvector.sqlalchemy import Vector
 from database import Base
 
@@ -13,6 +13,21 @@ from database import Base
 
 class MenuItemEmbedding(Base):
     __tablename__ = 'menu_item_embeddings'
+    __table_args__ = (
+        # HNSW, not IVFFlat: HNSW builds incrementally as rows are inserted
+        # (fine to create on an empty table, which this is right now) —
+        # IVFFlat instead needs a representative sample of real vectors
+        # already present to cluster well, which doesn't exist yet.
+        # vector_cosine_ops matches the `<=>` operator the search query
+        # actually uses (cosine distance) — an index built with the wrong
+        # ops class silently isn't used by a query using a different one.
+        Index(
+            'menu_item_embeddings_hnsw_cosine',
+            'embedding',
+            postgresql_using='hnsw',
+            postgresql_ops={'embedding': 'vector_cosine_ops'},
+        ),
+    )
 
     # One embedding per dish — item_id IS the primary key (no separate
     # surrogate id needed), which also makes "regenerate this dish's
