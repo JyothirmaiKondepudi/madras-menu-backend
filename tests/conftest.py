@@ -5,6 +5,15 @@ import os
 os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/madras_menu_test"
 )
+# auth/security.py needs a SECRET_KEY to sign/verify JWTs — tests don't
+# load .env.local (nothing in this app does; see database.py), so give it
+# a fixed, obviously-fake default rather than letting every auth test fail
+# with a None signing key when run outside a real dev environment.
+os.environ.setdefault("SECRET_KEY", "test-secret-key-do-not-use-in-production")
+# services/invoice_pdf.py writes real PDF files — point tests at a throwaway
+# temp directory instead of the repo's real storage/invoices folder.
+import tempfile
+os.environ.setdefault("INVOICE_PDF_DIR", tempfile.mkdtemp(prefix="madras_test_invoices_"))
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -37,14 +46,17 @@ def engine():
 
 @pytest.fixture(autouse=True)
 def clean_tables(engine):
-    """Runs after every test — deletes all rows from every table this app
-    owns, in FK-safe order, so tests never see another test's leftovers.
-    Kept simple (delete-all, not per-test transactions) since this is a
-    small, fully disposable database with real Postgres behavior."""
+    """Runs after every test — wipes every table this app owns, so tests
+    never see another test's leftovers. TRUNCATE ... CASCADE, not a
+    per-table DELETE in sorted_tables order — projects.final_invoice_id and
+    invoices.project_associated_to form a real FK cycle between those two
+    tables, and a test that actually sets finalInvoiceId (test_set_final_invoice)
+    creates a genuine circular row reference that no single delete order can
+    satisfy. CASCADE sidesteps the ordering question entirely."""
     yield
+    table_names = ", ".join(table.name for table in Base.metadata.tables.values())
     with engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            conn.execute(table.delete())
+        conn.execute(text(f"TRUNCATE {table_names} CASCADE"))
 
 
 @pytest.fixture()
@@ -64,20 +76,69 @@ def client(engine):
 
 
 @pytest.fixture()
-def test_user(client):
+def test_admin_login(engine):
+    """The one bootstrap admin every other fixture/test authenticates as.
+    Created directly against the DB, NOT via POST /users — that route is
+    itself admin-only now, so creating the very first admin has to happen
+    out-of-band, the same real bootstrapping step a production deployment
+    of this app would need once (see auth plan)."""
+    from sqlalchemy.orm import sessionmaker
+    from models import User
+    from auth.security import hash_password
+
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    admin = User(
+        fullName="Login Test Admin",
+        userEmail="login.admin@example.com",
+        userPhoneNumber="5550003333",
+        preferredContact="email",
+        userRole="admin",
+        passwordHash=hash_password("correct-horse-battery-staple"),
+    )
+    db.add(admin)
+    db.commit()
+    db.refresh(admin)
+    result = {
+        "userId": str(admin.userId),
+        "fullName": admin.fullName,
+        "userEmail": admin.userEmail,
+        "userRole": admin.userRole,
+    }
+    db.close()
+    return result
+
+
+@pytest.fixture()
+def admin_auth_headers(client, test_admin_login):
+    """Bearer headers for an admin — the common case for tests that just
+    need *some* authenticated, unrestricted caller and aren't themselves
+    testing authorization scoping. Also what every other fixture below
+    uses to create its own test data, now that POST /users/POST /projects/
+    POST /menu-items etc. all require an admin."""
+    resp = client.post("/auth/login", json={
+        "email": test_admin_login["userEmail"],
+        "password": "correct-horse-battery-staple",
+    })
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+@pytest.fixture()
+def test_user(client, admin_auth_headers):
     resp = client.post("/users", json={
         "fullName": "Test User",
         "email": "test.user@example.com",
         "phoneNumber": "5550001111",
         "preferredContact": "email",
         "role": "client",
-    })
+    }, headers=admin_auth_headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
 @pytest.fixture()
-def test_project(client, test_user):
+def test_project(client, test_user, admin_auth_headers):
     resp = client.post("/projects", json={
         "projectName": "Test Project",
         "projectStatus": "Proposal",
@@ -85,18 +146,35 @@ def test_project(client, test_user):
         "projectEndDate": "2026-11-01T23:00:00",
         "adminOnProject": test_user["userId"],
         "clientId": test_user["userId"],
-    })
+    }, headers=admin_auth_headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
 @pytest.fixture()
-def test_menu_item(client):
+def test_client_login(client, admin_auth_headers):
+    """A client-role user with a real password set — for auth/project-
+    authorization tests that need to actually log in, unlike the plain
+    test_user fixture (which has no password and can't)."""
+    resp = client.post("/users", json={
+        "fullName": "Login Test Client",
+        "email": "login.client@example.com",
+        "phoneNumber": "5550002222",
+        "preferredContact": "email",
+        "role": "client",
+        "password": "correct-horse-battery-staple",
+    }, headers=admin_auth_headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+@pytest.fixture()
+def test_menu_item(client, admin_auth_headers):
     resp = client.post("/menu-items", json={
         "name": "Test Dish",
         "course": "main",
         "vegNonveg": "veg",
         "priceWeight": "standard",
-    })
+    }, headers=admin_auth_headers)
     assert resp.status_code == 200, resp.text
     return resp.json()

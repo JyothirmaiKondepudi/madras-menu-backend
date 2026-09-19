@@ -11,3 +11,6 @@ hierarchy_report*.md
 
 # Database dumps — real data, shared directly, not committed
 *.sql
+
+# Generated invoice PDFs — reproducible from the DB via services/invoice_pdf.py
+storage/

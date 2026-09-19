@@ -12,6 +12,7 @@ from routes.menu_items import router as menu_items_router
 from routes.tax_categories import router as tax_categories_router
 from routes.item_relationships import router as item_relationships_router
 from embeddings.routes import router as embeddings_router
+from auth.routes import router as auth_router
 from hierarchy.mutations import HierarchyError
 
 # Schema is now managed by Alembic migrations (see alembic/versions/), not
@@ -29,6 +30,7 @@ app.include_router(menu_items_router)
 app.include_router(tax_categories_router)
 app.include_router(item_relationships_router)
 app.include_router(embeddings_router)
+app.include_router(auth_router)
 
 
 # --- Global error handling --------------------------------------------------
