@@ -1,49 +1,193 @@
-def test_create_invoice(client, test_user):
-    resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
-        "invoiceAmount": 2500.0,
-        "invoiceAssignedTo": test_user["userId"],
-    })
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["invoiceAmount"] == 2500.0
-
-
-def test_get_invoice_by_id(client, test_user):
-    created = client.post("/invoices", json={
+def _invoice_body(project_id, user_id, **overrides):
+    body = {
         "invoiceStatus": "Generated",
         "invoiceAmount": 100.0,
-        "invoiceAssignedTo": test_user["userId"],
-    }).json()
+        "invoiceAssignedTo": user_id,
+        "projectAssociatedTo": project_id,
+    }
+    body.update(overrides)
+    return body
 
-    resp = client.get(f"/invoices/{created['invoiceId']}")
+
+def test_create_invoice(client, test_user, test_project, admin_auth_headers):
+    resp = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=2500.0),
+        headers=admin_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoiceAmount"] == 2500.0
+    assert resp.json()["project"]["projectId"] == test_project["projectId"]
+
+
+def test_create_invoice_requires_admin(client, test_user, test_project, test_client_login):
+    login_resp = client.post("/auth/login", json={
+        "email": test_client_login["userEmail"],
+        "password": "correct-horse-battery-staple",
+    })
+    token = login_resp.json()["access_token"]
+
+    resp = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"]),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 403
+
+
+def test_get_invoice_by_id(client, test_user, test_project, admin_auth_headers):
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=admin_auth_headers
+    ).json()
+
+    resp = client.get(f"/invoices/{created['invoiceId']}", headers=admin_auth_headers)
     assert resp.status_code == 200
     assert resp.json()["invoiceId"] == created["invoiceId"]
 
 
-def test_get_nonexistent_invoice_returns_404(client):
-    resp = client.get("/invoices/00000000-0000-0000-0000-000000000000")
+def test_get_nonexistent_invoice_returns_404(client, admin_auth_headers):
+    resp = client.get("/invoices/00000000-0000-0000-0000-000000000000", headers=admin_auth_headers)
     assert resp.status_code == 404
 
 
-def test_update_invoice(client, test_user):
-    created = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
-        "invoiceAmount": 100.0,
-        "invoiceAssignedTo": test_user["userId"],
-    }).json()
+def test_get_invoices_requires_auth(client):
+    assert client.get("/invoices").status_code == 401
 
-    resp = client.patch(f"/invoices/{created['invoiceId']}", json={"invoiceStatus": "Paid"})
+
+def test_client_only_sees_own_invoices(client, test_user, test_project, test_client_login, admin_auth_headers):
+    client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=admin_auth_headers
+    )
+    login_resp = client.post("/auth/login", json={
+        "email": test_client_login["userEmail"],
+        "password": "correct-horse-battery-staple",
+    })
+    token = login_resp.json()["access_token"]
+
+    resp = client.get("/invoices", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_client_cannot_view_another_users_invoice(
+    client, test_user, test_project, test_client_login, admin_auth_headers
+):
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=admin_auth_headers
+    ).json()
+    login_resp = client.post("/auth/login", json={
+        "email": test_client_login["userEmail"],
+        "password": "correct-horse-battery-staple",
+    })
+    token = login_resp.json()["access_token"]
+
+    resp = client.get(f"/invoices/{created['invoiceId']}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+def test_get_invoices_by_project_id(client, test_user, test_project, admin_auth_headers):
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=admin_auth_headers
+    ).json()
+
+    resp = client.get(f"/invoices/projects/{test_project['projectId']}", headers=admin_auth_headers)
+    assert resp.status_code == 200
+    assert any(i["invoiceId"] == created["invoiceId"] for i in resp.json())
+
+
+def test_get_invoices_by_project_id_forbidden_for_unlinked_client(
+    client, test_project, test_client_login
+):
+    login_resp = client.post("/auth/login", json={
+        "email": test_client_login["userEmail"],
+        "password": "correct-horse-battery-staple",
+    })
+    token = login_resp.json()["access_token"]
+
+    resp = client.get(
+        f"/invoices/projects/{test_project['projectId']}", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 403
+
+
+def test_update_invoice(client, test_user, test_project, admin_auth_headers):
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=admin_auth_headers
+    ).json()
+
+    resp = client.patch(
+        f"/invoices/{created['invoiceId']}", json={"invoiceStatus": "Paid"}, headers=admin_auth_headers
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["invoiceStatus"] == "Paid"
 
 
-def test_delete_invoice(client, test_user):
-    created = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
-        "invoiceAmount": 100.0,
-        "invoiceAssignedTo": test_user["userId"],
-    }).json()
+def test_update_invoice_regenerates_pdf(client, test_user, test_project, admin_auth_headers):
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=100.0),
+        headers=admin_auth_headers,
+    ).json()
 
-    resp = client.delete(f"/invoices/{created['invoiceId']}")
+    original_pdf = client.get(f"/invoices/{created['invoiceId']}/pdf", headers=admin_auth_headers).content
+
+    client.patch(
+        f"/invoices/{created['invoiceId']}", json={"invoiceAmount": 999.0}, headers=admin_auth_headers
+    )
+
+    updated_pdf = client.get(f"/invoices/{created['invoiceId']}/pdf", headers=admin_auth_headers).content
+    # reportlab compresses its content stream, so the literal "999.00" isn't
+    # visible in the raw bytes — checking the file actually changed is the
+    # reliable signal that update_invoice_by_invoice_id really regenerated it.
+    assert updated_pdf != original_pdf
+
+
+def test_delete_invoice(client, test_user, test_project, admin_auth_headers):
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=admin_auth_headers
+    ).json()
+
+    resp = client.delete(f"/invoices/{created['invoiceId']}", headers=admin_auth_headers)
     assert resp.status_code == 204
-    assert client.get(f"/invoices/{created['invoiceId']}").status_code == 404
+    assert client.get(f"/invoices/{created['invoiceId']}", headers=admin_auth_headers).status_code == 404
+
+
+def test_invoice_pdf_generated_and_downloadable(client, test_user, test_project, admin_auth_headers):
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=250.0),
+        headers=admin_auth_headers,
+    ).json()
+
+    resp = client.get(f"/invoices/{created['invoiceId']}/pdf", headers=admin_auth_headers)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content.startswith(b"%PDF")
+
+
+def test_invoice_pdf_requires_auth(client, test_user, test_project, admin_auth_headers):
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=250.0),
+        headers=admin_auth_headers,
+    ).json()
+
+    assert client.get(f"/invoices/{created['invoiceId']}/pdf").status_code == 401
+
+
+def test_invoice_pdf_forbidden_for_another_user(
+    client, test_user, test_project, test_client_login, admin_auth_headers
+):
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=250.0),
+        headers=admin_auth_headers,
+    ).json()
+    login_resp = client.post("/auth/login", json={
+        "email": test_client_login["userEmail"],
+        "password": "correct-horse-battery-staple",
+    })
+    token = login_resp.json()["access_token"]
+
+    resp = client.get(f"/invoices/{created['invoiceId']}/pdf", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403

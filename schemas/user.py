@@ -20,6 +20,12 @@ class UserCreate(BaseModel):
     preferredContact: str
     address: str | None = None
     role: str
+    # Optional: lets whoever creates a user (an admin, via this endpoint)
+    # also set their login credential in the same call. A user created
+    # without one just can't log in yet — not every user_data row needs to.
+    # max_length matches bcrypt's own 72-byte input limit (silent truncation
+    # past that, so this makes the limit visible instead of silent).
+    password: str | None = Field(default=None, max_length=72)
 
 
 class UserUpdate(BaseModel):

@@ -13,7 +13,7 @@ class ProjectOut(BaseModel):
     projectEndDate: datetime
     adminOnProject: UUID | None = None
     clientId: UUID
-    project_invoice: UUID | None = None
+    finalInvoiceId: UUID | None = None
     client: UserOut
     admin: UserOut | None = None
 
@@ -28,7 +28,6 @@ class ProjectCreate(BaseModel):
     projectEndDate :datetime
     adminOnProject :UUID
     clientId :UUID
-    project_invoice: UUID | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -38,4 +37,3 @@ class ProjectUpdate(BaseModel):
     projectEndDate: datetime | None = None
     adminOnProject: UUID | None = None
     clientId: UUID | None = None
-    project_invoice: UUID | None = None
