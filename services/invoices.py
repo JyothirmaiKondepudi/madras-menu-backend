@@ -3,12 +3,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 from schemas.invoice import InvoiceUpdate
 from services.invoice_pdf import generate_invoice_pdf
+from services.notifications import create_notification
 
-# InvoiceOut nests project -> client/admin, same reasoning as
-# services/service.py's _WITH_PROJECT_AND_USERS.
+# InvoiceOut nests project -> client/vendor, same reasoning as
+# services/subproject.py's _WITH_PROJECT_AND_USERS.
 _WITH_PROJECT_AND_USERS = joinedload(Invoice.project).options(
     joinedload(Project.client),
-    joinedload(Project.admin),
+    joinedload(Project.vendor),
 )
 
 
@@ -19,7 +20,7 @@ def get_invoice_by_id(invoice_id, db: Session):
     return db.get(Invoice, invoice_id, options=[_WITH_PROJECT_AND_USERS])
 
 def get_invoices_by_user_id(user_id, db: Session):
-    """For a non-admin's GET /invoices — scoped by invoiceAssignedTo (who
+    """For a non-vendor's GET /invoices — scoped by invoiceAssignedTo (who
     it's billed to), not by project, since one person can be billed across
     several of their own projects."""
     return db.execute(
@@ -48,6 +49,13 @@ def add_new_invoice(new_invoice, db: Session):
     db.commit()
     db.refresh(created_invoice)
     _regenerate_pdf(created_invoice, db)
+    create_notification(
+        db,
+        user_id=created_invoice.invoiceAssignedTo,
+        type="invoice_generated",
+        message=f"A new invoice for ${created_invoice.invoiceAmount:,.2f} has been generated",
+        related_invoice_id=created_invoice.invoiceId,
+    )
     return created_invoice
 
 def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session):
@@ -64,22 +72,31 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
     return invoice
 
 def respond_to_invoice(invoice: Invoice, new_status: str, db: Session) -> Invoice:
-    """The client (or admin, on their behalf) accepting/declining an
-    invoice. Flags BOTH the client (invoiceAssignedTo) and the project's
-    admin for notification — regardless of which of the two performed the
-    action, per the basic design: "each gets flag set to notify.\""""
+    """The client (or vendor, on their behalf) accepting/declining an
+    invoice. Notifies BOTH the client (invoiceAssignedTo) and the
+    project's vendor — regardless of which of the two performed the
+    action, per the basic design: "each gets a notification.\""""
     invoice.invoiceStatus = new_status
-
-    client = db.get(User, invoice.invoiceAssignedTo)
-    if client is not None:
-        client.hasNotification = True
-    admin = invoice.project.admin
-    if admin is not None:
-        admin.hasNotification = True
-
     db.commit()
     db.refresh(invoice)
     _regenerate_pdf(invoice, db)
+
+    status_word = new_status.lower()
+    create_notification(
+        db,
+        user_id=invoice.invoiceAssignedTo,
+        type=f"invoice_{status_word}",
+        message=f"Your invoice was {status_word}",
+        related_invoice_id=invoice.invoiceId,
+    )
+    if invoice.project.vendorOnProject is not None:
+        create_notification(
+            db,
+            user_id=invoice.project.vendorOnProject,
+            type=f"invoice_{status_word}",
+            message=f"An invoice for \"{invoice.project.projectName}\" was {status_word} by the client",
+            related_invoice_id=invoice.invoiceId,
+        )
     return invoice
 
 def delete_invoice_by_invoice_id(invoice_id, db: Session):

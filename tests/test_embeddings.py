@@ -26,12 +26,12 @@ def _ollama_reachable() -> bool:
 OLLAMA_AVAILABLE = _ollama_reachable()
 
 
-def test_embed_nonexistent_item_returns_404(client, admin_auth_headers):
-    resp = client.post("/menu-items/does-not-exist/embedding", headers=admin_auth_headers)
+def test_embed_nonexistent_item_returns_404(client, vendor_auth_headers):
+    resp = client.post("/menu-items/does-not-exist/embedding", headers=vendor_auth_headers)
     assert resp.status_code == 404
 
 
-def test_embeddings_require_admin(client, test_client_login):
+def test_embeddings_require_vendor(client, test_client_login):
     login_resp = client.post("/auth/login", json={
         "email": test_client_login["userEmail"],
         "password": "correct-horse-battery-staple",
@@ -44,32 +44,32 @@ def test_embeddings_require_admin(client, test_client_login):
     assert resp.status_code == 403
 
 
-def test_embed_ollama_connection_error_returns_503(client, test_menu_item, admin_auth_headers):
+def test_embed_ollama_connection_error_returns_503(client, test_menu_item, vendor_auth_headers):
     with patch("embeddings.service.generate_embedding", side_effect=ConnectionError("Ollama down")):
-        resp = client.post(f"/menu-items/{test_menu_item['id']}/embedding", headers=admin_auth_headers)
+        resp = client.post(f"/menu-items/{test_menu_item['id']}/embedding", headers=vendor_auth_headers)
     assert resp.status_code == 503
     assert "unavailable" in resp.json()["detail"].lower()
 
 
-def test_search_ollama_connection_error_returns_503(client, admin_auth_headers):
+def test_search_ollama_connection_error_returns_503(client, vendor_auth_headers):
     with patch("embeddings.service.generate_embedding", side_effect=ConnectionError("Ollama down")):
-        resp = client.get("/embeddings/search", params={"text": "tamarind rice"}, headers=admin_auth_headers)
+        resp = client.get("/embeddings/search", params={"text": "tamarind rice"}, headers=vendor_auth_headers)
     assert resp.status_code == 503
 
 
 @pytest.mark.skipif(not OLLAMA_AVAILABLE, reason="Ollama isn't running locally")
-def test_embed_and_search_real_round_trip(client, test_menu_item, admin_auth_headers):
+def test_embed_and_search_real_round_trip(client, test_menu_item, vendor_auth_headers):
     """The actual thing this whole feature is for: generate a real
     embedding via Ollama, store it, then find it again by semantic search
     on its own name."""
-    embed_resp = client.post(f"/menu-items/{test_menu_item['id']}/embedding", headers=admin_auth_headers)
+    embed_resp = client.post(f"/menu-items/{test_menu_item['id']}/embedding", headers=vendor_auth_headers)
     assert embed_resp.status_code == 200, embed_resp.text
     assert embed_resp.json()["itemId"] == test_menu_item["id"]
 
     search_resp = client.get(
         "/embeddings/search",
         params={"text": test_menu_item["name"], "limit": 1},
-        headers=admin_auth_headers,
+        headers=vendor_auth_headers,
     )
     assert search_resp.status_code == 200
     results = search_resp.json()

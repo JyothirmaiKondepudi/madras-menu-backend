@@ -17,7 +17,7 @@ def add_new_Project(newProject, db:Session):
         projectStatus=newProject.projectStatus,
         projectStartDate=newProject.projectStartDate,
         projectEndDate=newProject.projectEndDate,
-        adminOnProject=newProject.adminOnProject,
+        vendorOnProject=newProject.vendorOnProject,
         clientId=newProject.clientId,
     )
     db.add(created_Project)

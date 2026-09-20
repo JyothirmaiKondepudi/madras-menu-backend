@@ -3,6 +3,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from schemas.user import UserUpdate
 from auth.security import hash_password
+from services.notifications import create_notification
 
 # maps each UserUpdate/UserCreate field name to the ORM attribute it corresponds to
 USER_FIELD_MAP = {
@@ -30,7 +31,7 @@ def get_user_by_email(email, db: Session):
         select(User).where(func.lower(User.userEmail) == email.lower())
     ).scalars().first()
 
-def add_new_user(user, db:Session):
+def add_new_user(user, db: Session, created_by=None):
     existing_user = db.execute(
         select(User).where(User.userEmail == user.email)
     ).scalars().first()
@@ -46,11 +47,24 @@ def add_new_user(user, db:Session):
         userAddress=user.address,
         userRole=user.role,
         passwordHash=hash_password(user.password) if user.password else None,
+        createdBy=created_by,
     )
     db.add(created_user)
     db.commit()
     print(f"commited to databse succesfully")
     db.refresh(created_user)
+
+    # Notify whoever sent this invite — not the new user themselves. Null
+    # for the one bootstrap vendor, who was created directly against the
+    # database, not through this function at all.
+    if created_by is not None:
+        create_notification(
+            db,
+            user_id=created_by,
+            type="user_created",
+            message=f"You added {created_user.fullName} as a new user",
+            related_user_id=created_user.userId,
+        )
     return created_user
 
 def update_user_by_user_id(user_id, updates: UserUpdate, db: Session):
