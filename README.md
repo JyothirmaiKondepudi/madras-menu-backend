@@ -1,6 +1,6 @@
 # Madras Menu Backend
 
-Status as of 2026-09-11: local-first dish hierarchy prototype, built and validated against a growing slice of real menu data. No GCP infra, no FastAPI service, no production database writes yet.
+Status as of 2026-09-20: a real, running FastAPI service — authentication, role-based authorization, project/service/invoice CRUD, invoice PDF generation, and a client accept/reject + notification flow are all built, tested, and verified end-to-end against the local dev database. The dish-hierarchy/knowledge-graph work (below) is a separate, still-local-only prototype, currently paused pending a decision on how to run its classification step at scale. No GCP infra, no production database writes yet — everything so far targets the local Docker Postgres only.
 
 ## What this repo is
 
@@ -15,6 +15,25 @@ The new Python backend for Madras Menu Studio's rewrite. The existing app (`madr
 - Beyond menu generation: full CRM (project/event management, invoicing, multiple user portals).
 - Menu generation becomes knowledge-graph + embeddings driven (RAG-style), replacing the old app's flat rule-based `MenuGenerator.ts`.
 - Stack: FastAPI (Python), Postgres on GCP (Cloud SQL vs. AlloyDB not yet decided), pgvector, Gemini for embeddings, React/Next.js frontend kept but rehosted on GCP.
+
+## Authentication & authorization
+
+Real, working, not a stub. Email + password only for now — Google Sign-In was designed (ID-token verification, no OAuth redirect flow needed) but explicitly dropped from this pass; it can be layered on later via a nullable `googleSub` column without reworking anything here.
+
+- **Passwords**: `bcrypt` directly (`auth/security.py`), not `passlib` — `passlib`'s bcrypt backend has a real, documented incompatibility with `bcrypt>=4.1`. Optional at user-creation time (`POST /users`) — a `user_data` row can exist with no login capability at all, which is the normal case for a client an admin hasn't given portal access to yet.
+- **Tokens**: `PyJWT`, `HTTPBearer` (not `OAuth2PasswordBearer` — login is a JSON body, not form-encoded). Access-token-only, no refresh flow yet, so the default expiry (`JWT_EXPIRE_MINUTES`, 720 = 12h) is deliberately longer than a typical short-lived access token to stay usable for a day's work.
+- **No open self-registration.** `POST /users` (the only way a new account gets created) is itself admin-only — closing off the obvious risk of an unauthenticated caller creating themselves as `role="admin"`. This creates a real bootstrap problem (how does the *first* admin get created, if creating any user requires already being one?) — solved out-of-band, by inserting the first admin row directly against the database, the same way a production deployment of this app would need to once. There is no API path for this on purpose.
+- **Authorization is binary today**: `role == "admin"` sees everything, unscoped. Anyone else is scoped to their own data — via `user_projects` (a many-to-many table that existed in the schema but was never wired up until this work) for projects/services, and via `invoiceAssignedTo` directly for invoices — a deliberately different rule, since an invoice is billed to a *person*, not scoped by project the way services are (see Invoicing below for how invoices relate to projects instead). Finer per-role behavior (staff vs. chef vs. client) isn't designed yet.
+- **Every route requires a valid token.** Reads are either admin-only (users, tax categories, the menu/hierarchy catalog, embeddings) or scoped as above; every write anywhere in the app is admin-only, with one deliberate exception — a client can `PATCH /invoices/{id}/accept` or `/reject` on their **own** invoice (see Invoicing below).
+- `auth/dependencies.py`'s `get_current_user` re-fetches the user from the database on **every** request rather than trusting anything beyond the user id encoded in the token — a role change or a deleted account takes effect immediately, not just once the token happens to expire.
+
+## Invoicing
+
+- **Invoices belong to a project**, not just a user (`Invoice.projectAssociatedTo`) — a project can have several over its lifecycle (deposit, balance, revisions), which is why this is a real foreign key, not the one-invoice-per-project field it replaced (`Project.project_invoice`, declared in the schema for a long time but never actually populated or queried by anything — removed once the real link existed).
+- **`Project.finalInvoiceId`** points at the one invoice, among possibly several, that the client actually went ahead with — never inferred automatically from status or recency, only ever set explicitly via `PATCH /projects/{id}/final-invoice/{invoice_id}` (admin-only, validates the invoice actually belongs to that project before accepting it).
+- **A PDF is generated for every invoice**, automatically, on both creation and every subsequent update (`services/invoice_pdf.py`, `reportlab` — no system-level dependencies, unlike `weasyprint`) — generate-and-store, not generate-on-demand, so `GET /invoices/{id}/pdf` is always serving the invoice's current state, never a stale creation-time snapshot.
+- **A client can accept or reject their own invoice** (`PATCH /invoices/{id}/accept` / `/reject`) — the one place in the entire app where a non-admin can write anything. Doing so sets a real `Accepted` status (kept distinct from `Paid` — agreeing to an invoice and payment actually being received are different events) or `Declined`, and flags **both** the client and the project's admin (`User.hasNotification`, a plain boolean, not a notification log) for notification. `PATCH /auth/clear-notification` is the self-service way to acknowledge and clear it.
+- Two real Postgres/SQLAlchemy issues surfaced building this, worth knowing if you touch this code: `Invoice.project` needed an explicit `foreign_keys=` once `Project.finalInvoiceId` created a second FK path between the same two tables (otherwise SQLAlchemy can't tell which column defines the relationship), and that same mutual-FK cycle silently broke `Base.metadata.create_all()`/`drop_all()` for the test database until the newer FK was marked `use_alter=True`.
 
 ## The hierarchy / knowledge graph — design decisions
 
@@ -176,9 +195,16 @@ python3 hierarchy/traverse.py --mermaid tree_diagram.md
 
 ## Next steps (not yet done)
 
-- Wire a real provider into `call_llm()` — planned as Vertex AI (GCP credits, once billing is set up), Flash/Flash-Lite tier. The Anthropic API was also priced out as a fallback (~$0.02–0.12 for a 79-item batch on Haiku/Sonnet/Opus 5 respectively).
-- At real catalog scale (~1,456 items, thousands of drafts), "send everyone the whole candidate list" won't scale — needs candidate-narrowing (cheap text similarity, or real embeddings, or checking the known `is_staple` set first — see the staple-hub discussion this design went through) before an LLM ever proposes a parent. Not built yet.
+**Backend (auth/invoicing side):**
+- Google Sign-In, SendGrid-based invite emails, and refresh tokens — all explicitly deferred, not forgotten.
+- Finer-grained authorization: today it's admin-vs-everyone-else; `staff`/`chef` roles have no distinct behavior yet.
+- The actual client/admin dashboards — this backend can answer "which projects/invoices are mine" and "who needs notifying," but no aggregation endpoint or frontend exists yet.
+- Porting `MenuGenerator.ts`/`pricingService.ts`/`noRepeatLedger.ts` from the old repo (the original "Step 1," still on hold).
+
+**Hierarchy / classification pipeline (paused):**
+- The automated classify stage is built (`hierarchy/candidates.py` — embedding-based retrieval — plus `hierarchy/classify.py`) but blocked on a real infrastructure decision: local Ollama models don't fit this dev machine's 8GB RAM without risking a hang, and Gemini's free tier caps at 20 requests/day — nowhere near enough for the ~1,367 still-unclassified items. Needs either paid Gemini billing, a different model, or a different machine.
+- At real catalog scale, "send everyone the whole candidate list" was already known not to scale (see below) — the embedding-retrieval design replaces that, but hasn't been run past a handful of items given the above.
 - A proper review UI, replacing "read a markdown file."
-- Wiring `hierarchy/*` writes directly into the database from an automated run (today, every write to `item_relationships` has gone through a manual review-then-insert step, by design).
-- The FastAPI service itself, and porting `MenuGenerator.ts`/`pricingService.ts`/`noRepeatLedger.ts` (the old repo's "Step 1," explicitly put on hold in favor of this hierarchy work).
-- GCP infra (Cloud SQL vs. AlloyDB), multi-tenancy, auth, frontend wiring, the ETL Claude→Gemini swap.
+
+**Infra, either side:**
+- GCP infra (Cloud SQL vs. AlloyDB), multi-tenancy, frontend wiring.

@@ -6,7 +6,7 @@ from schemas.project import ProjectOut
 
 class InvoiceOut(BaseModel):
     invoiceId: UUID
-    invoiceStatus: Literal['Generated', 'Assigned', 'Pending', 'Paid', 'Declined']
+    invoiceStatus: Literal['Generated', 'Assigned', 'Pending', 'Accepted', 'Paid', 'Declined']
     invoiceAmount: float
     invoiceAssignedTo: UUID
     projectAssociatedTo: UUID
@@ -16,14 +16,14 @@ class InvoiceOut(BaseModel):
 
 
 class InvoiceCreate(BaseModel):
-    invoiceStatus: Literal['Generated', 'Assigned', 'Pending', 'Paid', 'Declined']
+    invoiceStatus: Literal['Generated', 'Assigned', 'Pending', 'Accepted', 'Paid', 'Declined']
     invoiceAmount: float
     invoiceAssignedTo: UUID
     projectAssociatedTo: UUID
 
 
 class InvoiceUpdate(BaseModel):
-    invoiceStatus: Literal['Generated', 'Assigned', 'Pending', 'Paid', 'Declined'] | None = None
+    invoiceStatus: Literal['Generated', 'Assigned', 'Pending', 'Accepted', 'Paid', 'Declined'] | None = None
     invoiceAmount: float | None = None
     invoiceAssignedTo: UUID | None = None
     projectAssociatedTo: UUID | None = None

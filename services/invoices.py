@@ -63,6 +63,25 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
     _regenerate_pdf(invoice, db)
     return invoice
 
+def respond_to_invoice(invoice: Invoice, new_status: str, db: Session) -> Invoice:
+    """The client (or admin, on their behalf) accepting/declining an
+    invoice. Flags BOTH the client (invoiceAssignedTo) and the project's
+    admin for notification — regardless of which of the two performed the
+    action, per the basic design: "each gets flag set to notify.\""""
+    invoice.invoiceStatus = new_status
+
+    client = db.get(User, invoice.invoiceAssignedTo)
+    if client is not None:
+        client.hasNotification = True
+    admin = invoice.project.admin
+    if admin is not None:
+        admin.hasNotification = True
+
+    db.commit()
+    db.refresh(invoice)
+    _regenerate_pdf(invoice, db)
+    return invoice
+
 def delete_invoice_by_invoice_id(invoice_id, db: Session):
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:

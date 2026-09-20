@@ -9,6 +9,7 @@ class UserOut(BaseModel):
     preferredContact: str
     userAddress: str | None = None
     userRole:str
+    hasNotification: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

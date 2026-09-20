@@ -191,3 +191,115 @@ def test_invoice_pdf_forbidden_for_another_user(
 
     resp = client.get(f"/invoices/{created['invoiceId']}/pdf", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+def _project_with_admin_and_client(client, admin_id, client_id, headers):
+    return client.post("/projects", json={
+        "projectName": "Notification Test Project",
+        "projectStatus": "Proposal",
+        "projectStartDate": "2026-11-14T18:00:00",
+        "projectEndDate": "2026-11-14T23:00:00",
+        "adminOnProject": admin_id,
+        "clientId": client_id,
+    }, headers=headers).json()
+
+
+def _login(client, email, password="correct-horse-battery-staple"):
+    resp = client.post("/auth/login", json={"email": email, "password": password})
+    assert resp.status_code == 200, resp.text
+    return resp.json()["access_token"]
+
+
+def test_client_accepting_invoice_notifies_both_client_and_admin(
+    client, test_admin_login, test_client_login, admin_auth_headers
+):
+    project = _project_with_admin_and_client(
+        client, test_admin_login["userId"], test_client_login["userId"], admin_auth_headers
+    )
+    invoice = client.post(
+        "/invoices",
+        json=_invoice_body(project["projectId"], test_client_login["userId"]),
+        headers=admin_auth_headers,
+    ).json()
+
+    client_token = _login(client, test_client_login["userEmail"])
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}/accept", headers={"Authorization": f"Bearer {client_token}"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoiceStatus"] == "Accepted"
+
+    # both the client (who acted) and the project's admin should now be flagged
+    client_me = client.get("/auth/me", headers={"Authorization": f"Bearer {client_token}"}).json()
+    assert client_me["hasNotification"] is True
+
+    admin_token = _login(client, test_admin_login["userEmail"])
+    admin_me = client.get("/auth/me", headers={"Authorization": f"Bearer {admin_token}"}).json()
+    assert admin_me["hasNotification"] is True
+
+
+def test_reject_invoice_sets_declined_status(
+    client, test_admin_login, test_client_login, admin_auth_headers
+):
+    project = _project_with_admin_and_client(
+        client, test_admin_login["userId"], test_client_login["userId"], admin_auth_headers
+    )
+    invoice = client.post(
+        "/invoices",
+        json=_invoice_body(project["projectId"], test_client_login["userId"]),
+        headers=admin_auth_headers,
+    ).json()
+
+    client_token = _login(client, test_client_login["userEmail"])
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}/reject", headers={"Authorization": f"Bearer {client_token}"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoiceStatus"] == "Declined"
+
+
+def test_accept_invoice_requires_being_the_billed_client_or_admin(
+    client, test_user, test_project, test_client_login, admin_auth_headers
+):
+    invoice = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"]),
+        headers=admin_auth_headers,
+    ).json()
+
+    other_token = _login(client, test_client_login["userEmail"])
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}/accept", headers={"Authorization": f"Bearer {other_token}"}
+    )
+    assert resp.status_code == 403
+
+
+def test_accept_invoice_requires_auth(client, test_user, test_project, admin_auth_headers):
+    invoice = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"]),
+        headers=admin_auth_headers,
+    ).json()
+
+    assert client.patch(f"/invoices/{invoice['invoiceId']}/accept").status_code == 401
+
+
+def test_clear_notification(client, test_client_login, test_admin_login, admin_auth_headers):
+    project = _project_with_admin_and_client(
+        client, test_admin_login["userId"], test_client_login["userId"], admin_auth_headers
+    )
+    invoice = client.post(
+        "/invoices",
+        json=_invoice_body(project["projectId"], test_client_login["userId"]),
+        headers=admin_auth_headers,
+    ).json()
+    client_token = _login(client, test_client_login["userEmail"])
+    client.patch(f"/invoices/{invoice['invoiceId']}/accept", headers={"Authorization": f"Bearer {client_token}"})
+
+    resp = client.patch(
+        "/auth/clear-notification", headers={"Authorization": f"Bearer {client_token}"}
+    )
+    assert resp.status_code == 204
+
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {client_token}"}).json()
+    assert me["hasNotification"] is False
