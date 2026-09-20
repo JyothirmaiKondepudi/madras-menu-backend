@@ -21,10 +21,18 @@ from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
 import models  # noqa: F401 — registers every ORM class on Base.metadata
+import uuid
 from database import Base, get_db
 from main import app
+from auth.permissions import PERMISSIONS, ROLE_PERMISSIONS
 
 TEST_DATABASE_URL = os.environ["DATABASE_URL"]
+
+# Static reference data, not per-test state — seeded once for the whole
+# session (see the engine fixture) and deliberately excluded from
+# clean_tables' per-test TRUNCATE below, or every test after the first
+# would run with zero permissions granted to any role.
+_REFERENCE_TABLES = {"permissions", "role_permissions"}
 
 
 @pytest.fixture(scope="session")
@@ -39,6 +47,28 @@ def engine():
     with eng.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(eng)
+
+    # Base.metadata.create_all() only builds the schema — it doesn't run
+    # Alembic migrations, so the real migration's seed data (every
+    # permission, all granted to "vendor") never runs here. Re-seed from the
+    # same auth.permissions module the migration imports from, so the two
+    # can't drift apart.
+    with eng.begin() as conn:
+        permission_ids = {}
+        for name, description in PERMISSIONS:
+            permission_id = uuid.uuid4()
+            permission_ids[name] = permission_id
+            conn.execute(
+                text("INSERT INTO permissions (id, name, description) VALUES (:id, :name, :description)"),
+                {"id": permission_id, "name": name, "description": description},
+            )
+        for role, permission_names in ROLE_PERMISSIONS.items():
+            for name in permission_names:
+                conn.execute(
+                    text("INSERT INTO role_permissions (role, permission_id) VALUES (:role, :permission_id)"),
+                    {"role": role, "permission_id": permission_ids[name]},
+                )
+
     yield eng
     Base.metadata.drop_all(eng)
     eng.dispose()
@@ -46,15 +76,18 @@ def engine():
 
 @pytest.fixture(autouse=True)
 def clean_tables(engine):
-    """Runs after every test — wipes every table this app owns, so tests
-    never see another test's leftovers. TRUNCATE ... CASCADE, not a
-    per-table DELETE in sorted_tables order — projects.final_invoice_id and
+    """Runs after every test — wipes every table this app owns (except the
+    static reference tables above), so tests never see another test's
+    leftovers. TRUNCATE ... CASCADE, not a per-table DELETE in
+    sorted_tables order — projects.final_invoice_id and
     invoices.project_associated_to form a real FK cycle between those two
     tables, and a test that actually sets finalInvoiceId (test_set_final_invoice)
     creates a genuine circular row reference that no single delete order can
     satisfy. CASCADE sidesteps the ordering question entirely."""
     yield
-    table_names = ", ".join(table.name for table in Base.metadata.tables.values())
+    table_names = ", ".join(
+        table.name for table in Base.metadata.tables.values() if table.name not in _REFERENCE_TABLES
+    )
     with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {table_names} CASCADE"))
 
@@ -76,10 +109,10 @@ def client(engine):
 
 
 @pytest.fixture()
-def test_admin_login(engine):
-    """The one bootstrap admin every other fixture/test authenticates as.
+def test_vendor_login(engine):
+    """The one bootstrap vendor every other fixture/test authenticates as.
     Created directly against the DB, NOT via POST /users — that route is
-    itself admin-only now, so creating the very first admin has to happen
+    itself vendor-only now, so creating the very first vendor has to happen
     out-of-band, the same real bootstrapping step a production deployment
     of this app would need once (see auth plan)."""
     from sqlalchemy.orm import sessionmaker
@@ -88,36 +121,36 @@ def test_admin_login(engine):
 
     Session = sessionmaker(bind=engine)
     db = Session()
-    admin = User(
-        fullName="Login Test Admin",
-        userEmail="login.admin@example.com",
+    vendor = User(
+        fullName="Login Test Vendor",
+        userEmail="login.vendor@example.com",
         userPhoneNumber="5550003333",
         preferredContact="email",
-        userRole="admin",
+        userRole="vendor",
         passwordHash=hash_password("correct-horse-battery-staple"),
     )
-    db.add(admin)
+    db.add(vendor)
     db.commit()
-    db.refresh(admin)
+    db.refresh(vendor)
     result = {
-        "userId": str(admin.userId),
-        "fullName": admin.fullName,
-        "userEmail": admin.userEmail,
-        "userRole": admin.userRole,
+        "userId": str(vendor.userId),
+        "fullName": vendor.fullName,
+        "userEmail": vendor.userEmail,
+        "userRole": vendor.userRole,
     }
     db.close()
     return result
 
 
 @pytest.fixture()
-def admin_auth_headers(client, test_admin_login):
-    """Bearer headers for an admin — the common case for tests that just
+def vendor_auth_headers(client, test_vendor_login):
+    """Bearer headers for a vendor — the common case for tests that just
     need *some* authenticated, unrestricted caller and aren't themselves
     testing authorization scoping. Also what every other fixture below
     uses to create its own test data, now that POST /users/POST /projects/
-    POST /menu-items etc. all require an admin."""
+    POST /menu-items etc. all require a vendor."""
     resp = client.post("/auth/login", json={
-        "email": test_admin_login["userEmail"],
+        "email": test_vendor_login["userEmail"],
         "password": "correct-horse-battery-staple",
     })
     assert resp.status_code == 200, resp.text
@@ -125,34 +158,34 @@ def admin_auth_headers(client, test_admin_login):
 
 
 @pytest.fixture()
-def test_user(client, admin_auth_headers):
+def test_user(client, vendor_auth_headers):
     resp = client.post("/users", json={
         "fullName": "Test User",
         "email": "test.user@example.com",
         "phoneNumber": "5550001111",
         "preferredContact": "email",
         "role": "client",
-    }, headers=admin_auth_headers)
+    }, headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
 @pytest.fixture()
-def test_project(client, test_user, admin_auth_headers):
+def test_project(client, test_user, vendor_auth_headers):
     resp = client.post("/projects", json={
         "projectName": "Test Project",
         "projectStatus": "Proposal",
         "projectStartDate": "2026-11-01T18:00:00",
         "projectEndDate": "2026-11-01T23:00:00",
-        "adminOnProject": test_user["userId"],
+        "vendorOnProject": test_user["userId"],
         "clientId": test_user["userId"],
-    }, headers=admin_auth_headers)
+    }, headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
 @pytest.fixture()
-def test_client_login(client, admin_auth_headers):
+def test_client_login(client, vendor_auth_headers):
     """A client-role user with a real password set — for auth/project-
     authorization tests that need to actually log in, unlike the plain
     test_user fixture (which has no password and can't)."""
@@ -163,18 +196,18 @@ def test_client_login(client, admin_auth_headers):
         "preferredContact": "email",
         "role": "client",
         "password": "correct-horse-battery-staple",
-    }, headers=admin_auth_headers)
+    }, headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
 @pytest.fixture()
-def test_menu_item(client, admin_auth_headers):
+def test_menu_item(client, vendor_auth_headers):
     resp = client.post("/menu-items", json={
         "name": "Test Dish",
         "course": "main",
         "vegNonveg": "veg",
         "priceWeight": "standard",
-    }, headers=admin_auth_headers)
+    }, headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     return resp.json()

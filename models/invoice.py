@@ -16,7 +16,7 @@ class Invoice(Base):
     invoiceAmount = Column("invoice_amount", Float, nullable=False)
     invoiceAssignedTo = Column("invoice_assigned_to", UUID(as_uuid=True), ForeignKey('user_data.user_id'), nullable=False)
     # A project can have more than one invoice over its lifecycle (deposit,
-    # balance, add-ons) — same shape as Service.projectAssociatedTo, not a
+    # balance, add-ons) — same shape as Subproject.projectAssociatedTo, not a
     # one-to-one. Replaces the old, never-populated Project.project_invoice.
     projectAssociatedTo = Column("project_associated_to", UUID(as_uuid=True), ForeignKey('projects.project_id'), nullable=False)
 

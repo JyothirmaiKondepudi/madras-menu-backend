@@ -14,18 +14,23 @@ suite's `Base.metadata.create_all()` to see the full schema, exactly like
 from .user import User
 from .project import Project, user_projects
 from .invoice import Invoice
-from .service import Service
+from .subproject import Subproject
 from .tax_category import TaxCategory
 from .menu_item import MenuItem
 from .item_relationship import ItemRelationship
+from .permission import Permission, RolePermission
+from .notifications import Notification
 
 __all__ = [
     "User",
     "Project",
     "user_projects",
     "Invoice",
-    "Service",
+    "Subproject",
     "TaxCategory",
     "MenuItem",
     "ItemRelationship",
+    "Permission",
+    "RolePermission",
+    "Notification",
 ]

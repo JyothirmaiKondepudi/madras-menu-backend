@@ -7,12 +7,13 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from routes.users import router as users_router
 from routes.projects import router as projects_router
 from routes.invoices import router as invoice_router
-from routes.service import router as service_router
+from routes.subproject import router as subproject_router
 from routes.menu_items import router as menu_items_router
 from routes.tax_categories import router as tax_categories_router
 from routes.item_relationships import router as item_relationships_router
 from embeddings.routes import router as embeddings_router
 from auth.routes import router as auth_router
+from routes.notifications import router as notifications_router
 from hierarchy.mutations import HierarchyError
 
 # Schema is now managed by Alembic migrations (see alembic/versions/), not
@@ -25,12 +26,13 @@ app = FastAPI()
 app.include_router(users_router)
 app.include_router(projects_router)
 app.include_router(invoice_router)
-app.include_router(service_router)
+app.include_router(subproject_router)
 app.include_router(menu_items_router)
 app.include_router(tax_categories_router)
 app.include_router(item_relationships_router)
 app.include_router(embeddings_router)
 app.include_router(auth_router)
+app.include_router(notifications_router)
 
 
 # --- Global error handling --------------------------------------------------
