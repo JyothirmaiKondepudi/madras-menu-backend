@@ -41,3 +41,13 @@ def change_password_route(
     # separate, deliberately not-yet-built capability.
     if not change_password(current_user, body.currentPassword, body.newPassword, db):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+
+@router.patch("/auth/clear-notification", status_code=204)
+def clear_notification(
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Self-service only — a user acknowledges their own notification flag,
+    e.g. after opening their dashboard. Nobody clears someone else's."""
+    current_user.hasNotification = False
+    db.commit()

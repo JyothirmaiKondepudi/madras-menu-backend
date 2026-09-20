@@ -58,6 +58,28 @@ def delete_invoice(invoice_id: UUID, db: Session = Depends(get_db), admin: User 
     if deleted_invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
 
+@router.patch("/invoices/{invoice_id}/accept", response_model=InvoiceOut)
+def accept_invoice(
+    invoice_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    invoice = get_invoice_by_id(invoice_id, db)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="invoice not found")
+    if current_user.userRole != "admin" and invoice.invoiceAssignedTo != current_user.userId:
+        raise HTTPException(status_code=403, detail="not authorized to respond to this invoice")
+    return respond_to_invoice(invoice, "Accepted", db)
+
+@router.patch("/invoices/{invoice_id}/reject", response_model=InvoiceOut)
+def reject_invoice(
+    invoice_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    invoice = get_invoice_by_id(invoice_id, db)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="invoice not found")
+    if current_user.userRole != "admin" and invoice.invoiceAssignedTo != current_user.userId:
+        raise HTTPException(status_code=403, detail="not authorized to respond to this invoice")
+    return respond_to_invoice(invoice, "Declined", db)
+
 @router.get("/invoices/{invoice_id}/pdf")
 def get_invoice_pdf(
     invoice_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)

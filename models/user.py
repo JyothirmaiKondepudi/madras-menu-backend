@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime
+from sqlalchemy import Column, String, DateTime, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -20,6 +20,10 @@ class User(Base):
     # an admin created but hasn't given login access to yet) — not every
     # user_data row is expected to be able to log in.
     passwordHash = Column("password_hash", String, nullable=True)
+    # Simple flag, not a notification log — set True whenever something
+    # this user cares about happens (e.g. an invoice they're tied to gets
+    # accepted/rejected), cleared explicitly via PATCH /auth/clear-notification.
+    hasNotification = Column("has_notification", Boolean, nullable=False, default=False, server_default="false")
     userCreatedAt = Column("created_at", DateTime, default=datetime.now)
     updatedAt = Column("updated_at", DateTime, default=datetime.now, onupdate=datetime.now)
 
