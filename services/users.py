@@ -1,7 +1,8 @@
 from models import User
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from schemas.user import UserUpdate
+from auth.security import hash_password
 
 # maps each UserUpdate/UserCreate field name to the ORM attribute it corresponds to
 USER_FIELD_MAP = {
@@ -19,6 +20,16 @@ def get_all_users(db:Session):
 def get_user_by_user_id(user_id, db:Session):
     return db.get(User, user_id)
 
+def get_user_by_email(email, db: Session):
+    # Case-insensitive on purpose (unlike add_new_user's duplicate check
+    # below) — this is specifically the lookup auth/service.py uses to log
+    # someone in, and login shouldn't fail just because a client typed
+    # their email in different casing than however it was originally
+    # entered when their account was created.
+    return db.execute(
+        select(User).where(func.lower(User.userEmail) == email.lower())
+    ).scalars().first()
+
 def add_new_user(user, db:Session):
     existing_user = db.execute(
         select(User).where(User.userEmail == user.email)
@@ -34,6 +45,7 @@ def add_new_user(user, db:Session):
         preferredContact=user.preferredContact,
         userAddress=user.address,
         userRole=user.role,
+        passwordHash=hash_password(user.password) if user.password else None,
     )
     db.add(created_user)
     db.commit()

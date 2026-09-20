@@ -6,10 +6,8 @@ sqlalchemy
 uvicorn
 alembic
 langchain-ollama
+langchain-google-genai   # hierarchy/classify.py's Gemini path — local Ollama models don't fit this machine's 8GB RAM
 pgvector   # SQLAlchemy Vector column type, for embeddings/model.py
-
-# Add one of these once a real LLM provider is wired into call_llm()
-# in propose_hierarchy.py — see README.md "What's actually built":
-# anthropic
-# google-genai
-# google-cloud-aiplatform
+bcrypt   # auth/security.py password hashing — used directly, not via passlib (bcrypt>=4.1 breaks passlib's version-sniffing)
+pyjwt[crypto]   # auth/security.py JWT tokens — chosen over python-jose (simpler API, no algorithm-confusion CVE history)
+reportlab   # services/invoice_pdf.py — pure-Python PDF generation, no system-level deps (unlike weasyprint)

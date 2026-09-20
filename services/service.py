@@ -64,3 +64,12 @@ def get_all_services_by_project_id(project_id, db: Session):
         .where(Service.projectAssociatedTo == project_id)
         .options(_WITH_PROJECT_AND_USERS)
     ).scalars().all()
+
+def get_services_by_project_ids(project_ids, db: Session):
+    """For a non-admin's GET /services — every service belonging to any
+    project they're linked to via user_projects."""
+    return db.execute(
+        select(Service)
+        .where(Service.projectAssociatedTo.in_(project_ids))
+        .options(_WITH_PROJECT_AND_USERS)
+    ).scalars().all()
