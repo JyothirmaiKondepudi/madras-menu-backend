@@ -44,6 +44,7 @@ def add_new_invoice(new_invoice, db: Session):
         invoiceAmount=new_invoice.invoiceAmount,
         invoiceAssignedTo=new_invoice.invoiceAssignedTo,
         projectAssociatedTo=new_invoice.projectAssociatedTo,
+        subprojectId=new_invoice.subprojectId,
     )
     db.add(created_invoice)
     db.commit()
