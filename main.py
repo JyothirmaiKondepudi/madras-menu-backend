@@ -14,6 +14,8 @@ from routes.item_relationships import router as item_relationships_router
 from embeddings.routes import router as embeddings_router
 from auth.routes import router as auth_router
 from routes.notifications import router as notifications_router
+from routes.billing_history import router as billing_history_router
+from routes.billing_info import router as billing_info_router
 from hierarchy.mutations import HierarchyError
 
 # Schema is now managed by Alembic migrations (see alembic/versions/), not
@@ -33,6 +35,8 @@ app.include_router(item_relationships_router)
 app.include_router(embeddings_router)
 app.include_router(auth_router)
 app.include_router(notifications_router)
+app.include_router(billing_history_router)
+app.include_router(billing_info_router)
 
 
 # --- Global error handling --------------------------------------------------
