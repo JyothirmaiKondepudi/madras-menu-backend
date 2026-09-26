@@ -11,11 +11,11 @@ class ProjectOut(BaseModel):
     projectStatus: Literal['Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete']
     projectStartDate: datetime
     projectEndDate: datetime
-    adminOnProject: UUID | None = None
+    vendorOnProject: UUID | None = None
     clientId: UUID
     finalInvoiceId: UUID | None = None
     client: UserOut
-    admin: UserOut | None = None
+    vendor: UserOut | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -24,9 +24,9 @@ class ProjectOut(BaseModel):
 class ProjectCreate(BaseModel):
     projectName :str
     projectStatus: Literal['Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete']
-    projectStartDate:datetime 
+    projectStartDate:datetime
     projectEndDate :datetime
-    adminOnProject :UUID
+    vendorOnProject :UUID
     clientId :UUID
 
 
@@ -35,5 +35,5 @@ class ProjectUpdate(BaseModel):
     projectStatus: Literal['Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete'] | None = None
     projectStartDate: datetime | None = None
     projectEndDate: datetime | None = None
-    adminOnProject: UUID | None = None
+    vendorOnProject: UUID | None = None
     clientId: UUID | None = None

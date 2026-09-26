@@ -14,11 +14,11 @@ class Project(Base):
     projectStatus = Column("project_status", Enum('Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete', name='project_status_enum'))
     projectStartDate = Column("project_start_date", DateTime, default=datetime.now)
     projectEndDate = Column("project_end_date", DateTime, default=datetime.now)
-    adminOnProject = Column("admin_on_project", UUID(as_uuid=True), ForeignKey('user_data.user_id'))
+    vendorOnProject = Column("vendor_on_project", UUID(as_uuid=True), ForeignKey('user_data.user_id'))
     clientId = Column("client_id", UUID(as_uuid=True), ForeignKey('user_data.user_id'), nullable=False)
     # A project can have several invoices over time (revisions, drafts) —
     # this points at the one the client actually went ahead with, so the
-    # admin has a single answer to "which invoice is the real one for this
+    # vendor has a single answer to "which invoice is the real one for this
     # project." Null until explicitly set (see PATCH
     # /projects/{id}/final-invoice/{invoice_id}) — never inferred from
     # invoiceStatus or "most recent," since neither reliably means "the
@@ -39,7 +39,7 @@ class Project(Base):
     )
 
     client = relationship('User', foreign_keys=[clientId])
-    admin = relationship('User', foreign_keys=[adminOnProject])
+    vendor = relationship('User', foreign_keys=[vendorOnProject])
     users = relationship('User', secondary='user_projects', back_populates='projects')
     finalInvoice = relationship('Invoice', foreign_keys=[finalInvoiceId])
 
