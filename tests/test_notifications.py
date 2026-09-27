@@ -20,8 +20,6 @@ def test_notifications_require_auth(client):
 
 
 def test_creating_user_notifies_the_creator(client, vendor_auth_headers, test_vendor_login):
-    # test_user (the plain no-password fixture) isn't used here on purpose —
-    # we need to actually inspect the creating vendor's own notifications
     resp = client.post("/users", json={
         "fullName": "New Invitee",
         "email": "new.invitee@example.com",
@@ -39,8 +37,6 @@ def test_creating_user_notifies_the_creator(client, vendor_auth_headers, test_ve
 
 
 def test_invoice_generated_notifies_the_billed_client(client, test_user, test_project, vendor_auth_headers, test_client_login):
-    # link test_client_login to test_project so we can log in as the
-    # invoice's own assignee and check their unread notifications directly
     resp = client.post("/invoices", json={
         "invoiceStatus": "Generated",
         "invoiceAmount": 500.0,

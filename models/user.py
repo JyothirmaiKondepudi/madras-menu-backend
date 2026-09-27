@@ -16,14 +16,9 @@ class User(Base):
     preferredContact = Column("preferred_contact", String, nullable=False)
     userAddress = Column("address", String)
     userRole = Column('role', String, nullable=False)
-    # Null means this user has never had a password set (e.g. a client row
-    # a vendor created but hasn't given login access to yet) — not every
-    # user_data row is expected to be able to log in.
+    # Null if this user has no login access yet (e.g. a client row with no password set)
     passwordHash = Column("password_hash", String, nullable=True)
-    # Who created this row (a vendor, via POST /users) — null for the one
-    # bootstrap vendor, who was inserted directly against the database, not
-    # through the API. Used to notify "the one who sent this invite" when
-    # a new user is created (see notifications/service.py).
+    # Who created this row; null for the bootstrap vendor inserted directly into the DB
     createdBy = Column("created_by", UUID(as_uuid=True), ForeignKey('user_data.user_id'), nullable=True)
     userCreatedAt = Column("created_at", DateTime, default=datetime.now)
     updatedAt = Column("updated_at", DateTime, default=datetime.now, onupdate=datetime.now)

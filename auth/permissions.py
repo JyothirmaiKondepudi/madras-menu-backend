@@ -1,19 +1,4 @@
-"""
-The single source of truth for what permissions exist — imported by the
-migration that seeds them into the real database AND by the test suite's
-`engine` fixture (which builds its schema via Base.metadata.create_all(),
-bypassing Alembic entirely, so it needs its own seeding). Kept in one place
-on purpose: hand-maintaining two copies of this list was exactly the kind
-of duplicated-state drift that caused real bugs earlier in this project
-(the hierarchy tree's tracking-file drift, fixed by removing the second
-copy of the truth rather than trying to keep two in sync).
-
-One row per permission actually enforced in the app today — a faithful
-conversion of every existing "userRole == vendor" check into a named
-permission, not new authorization rules. See auth/dependencies.py's
-require_permission()/user_has_permission() and the routes/*.py files
-using them.
-"""
+"""Single source of truth for permissions — used by the seed migration and the test suite's engine fixture."""
 
 PERMISSIONS = [
     ("user:list", "List every user account"),
@@ -43,10 +28,7 @@ PERMISSIONS = [
     ("embedding:manage", "Generate or search menu item embeddings"),
 ]
 
-# role -> permission names. "client" is deliberately absent — their access
-# is entirely identity/resource-scoped (user_projects, invoiceAssignedTo),
-# not permission-table-driven. A future "staff"/"chef" role gets its own
-# entry here, no code change required anywhere else.
+# role -> permission names. "client" is absent — its access is resource-scoped, not permission-based.
 ROLE_PERMISSIONS = {
     "vendor": [name for name, _ in PERMISSIONS],
 }

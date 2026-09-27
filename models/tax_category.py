@@ -3,10 +3,6 @@ from datetime import datetime
 import uuid
 from database import Base
 
-# --- Ported from madras-menu-studio's Prisma schema (owned there, not by this
-# repo's Alembic migrations) — mapped read/write against the existing table,
-# matching its real column types (text ids, not UUID) exactly. ---
-
 
 class TaxCategory(Base):
     __tablename__ = 'tax_categories'
