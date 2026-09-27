@@ -53,7 +53,7 @@ target_metadata = Base.metadata
 # autogenerate pass gets reviewed (or isn't).
 OWNED_TABLES = {
     "user_data", "projects", "invoices", "subprojects", "user_projects", "menu_item_embeddings",
-    "permissions", "role_permissions", "notifications",
+    "permissions", "role_permissions", "notifications", "account_activity",
 }
 
 

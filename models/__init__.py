@@ -20,6 +20,7 @@ from .menu_item import MenuItem
 from .item_relationship import ItemRelationship
 from .permission import Permission, RolePermission
 from .notifications import Notification
+from .account_activity import AccountActivity
 
 __all__ = [
     "User",
@@ -33,4 +34,5 @@ __all__ = [
     "Permission",
     "RolePermission",
     "Notification",
+    "AccountActivity",
 ]

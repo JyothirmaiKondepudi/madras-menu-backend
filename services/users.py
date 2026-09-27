@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from schemas.user import UserUpdate
 from auth.security import hash_password
 from services.notifications import create_notification
+from services.account_activity import record_activity
 
 # maps each UserUpdate/UserCreate field name to the ORM attribute it corresponds to
 USER_FIELD_MAP = {
@@ -65,6 +66,14 @@ def add_new_user(user, db: Session, created_by=None):
             message=f"You added {created_user.fullName} as a new user",
             related_user_id=created_user.userId,
         )
+    # Logged unconditionally, unlike the notification above — even the one
+    # bootstrap vendor (created_by=None) gets a row, actorId=None.
+    record_activity(
+        db,
+        activity_type="user_created",
+        description=f"{created_user.fullName} was added as a new user",
+        actor_id=created_by,
+    )
     return created_user
 
 def update_user_by_user_id(user_id, updates: UserUpdate, db: Session):
