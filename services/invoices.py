@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from schemas.invoice import InvoiceUpdate
 from services.invoice_pdf import generate_invoice_pdf
 from services.notifications import create_notification
+from services.account_activity import record_activity
 
 # InvoiceOut nests project -> client/vendor, same reasoning as
 # services/subproject.py's _WITH_PROJECT_AND_USERS.
@@ -38,7 +39,7 @@ def _regenerate_pdf(invoice: Invoice, db: Session) -> None:
     assigned_user = db.get(User, invoice.invoiceAssignedTo)
     generate_invoice_pdf(invoice, assigned_user)
 
-def add_new_invoice(new_invoice, db: Session):
+def add_new_invoice(new_invoice, db: Session, actor_id=None):
     created_invoice = Invoice(
         invoiceStatus=new_invoice.invoiceStatus,
         invoiceAmount=new_invoice.invoiceAmount,
@@ -56,6 +57,13 @@ def add_new_invoice(new_invoice, db: Session):
         message=f"A new invoice for ${created_invoice.invoiceAmount:,.2f} has been generated",
         related_invoice_id=created_invoice.invoiceId,
     )
+    record_activity(
+        db,
+        activity_type="invoice_generated",
+        description=f"An invoice for ${created_invoice.invoiceAmount:,.2f} was generated",
+        project_id=created_invoice.projectAssociatedTo,
+        actor_id=actor_id,
+    )
     return created_invoice
 
 def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session):
@@ -71,7 +79,7 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
     _regenerate_pdf(invoice, db)
     return invoice
 
-def respond_to_invoice(invoice: Invoice, new_status: str, db: Session) -> Invoice:
+def respond_to_invoice(invoice: Invoice, new_status: str, db: Session, actor_id=None) -> Invoice:
     """The client (or vendor, on their behalf) accepting/declining an
     invoice. Notifies BOTH the client (invoiceAssignedTo) and the
     project's vendor — regardless of which of the two performed the
@@ -96,6 +104,14 @@ def respond_to_invoice(invoice: Invoice, new_status: str, db: Session) -> Invoic
             type=f"invoice_{status_word}",
             message=f"An invoice for \"{invoice.project.projectName}\" was {status_word} by the client",
             related_invoice_id=invoice.invoiceId,
+        )
+    if new_status == "Accepted":
+        record_activity(
+            db,
+            activity_type="invoice_accepted",
+            description=f"Invoice for \"{invoice.project.projectName}\" was accepted by the client",
+            project_id=invoice.projectAssociatedTo,
+            actor_id=actor_id,
         )
     return invoice
 

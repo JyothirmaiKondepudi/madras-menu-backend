@@ -37,8 +37,10 @@ def getinvoiceById(
      return invoice
 
 @router.post("/invoices", response_model=InvoiceOut, dependencies=[Depends(require_permission("invoice:create"))])
-def add_invoice(new_invoice: InvoiceCreate, db: Session = Depends(get_db)):
-     created_invoice = add_new_invoice(new_invoice, db)
+def add_invoice(
+    new_invoice: InvoiceCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+     created_invoice = add_new_invoice(new_invoice, db, actor_id=current_user.userId)
      if created_invoice is None:
          raise HTTPException(status_code=409, detail=f"failure creating a new invoice")
      return created_invoice
@@ -65,7 +67,7 @@ def accept_invoice(
         raise HTTPException(status_code=404, detail="invoice not found")
     if not user_has_permission(current_user, "invoice:view_all", db) and invoice.invoiceAssignedTo != current_user.userId:
         raise HTTPException(status_code=403, detail="not authorized to respond to this invoice")
-    return respond_to_invoice(invoice, "Accepted", db)
+    return respond_to_invoice(invoice, "Accepted", db, actor_id=current_user.userId)
 
 @router.patch("/invoices/{invoice_id}/reject", response_model=InvoiceOut)
 def reject_invoice(
@@ -76,7 +78,7 @@ def reject_invoice(
         raise HTTPException(status_code=404, detail="invoice not found")
     if not user_has_permission(current_user, "invoice:view_all", db) and invoice.invoiceAssignedTo != current_user.userId:
         raise HTTPException(status_code=403, detail="not authorized to respond to this invoice")
-    return respond_to_invoice(invoice, "Declined", db)
+    return respond_to_invoice(invoice, "Declined", db, actor_id=current_user.userId)
 
 @router.get("/invoices/{invoice_id}/pdf")
 def get_invoice_pdf(

@@ -36,8 +36,10 @@ def get_subproject_by_id(
      return subproject
 
 @router.post("/subprojects", response_model=SubprojectOut, dependencies=[Depends(require_permission("subproject:create"))])
-def add_subproject(new_subproject: SubprojectCreate, db: Session = Depends(get_db)):
-     created_subproject = add_new_subproject(new_subproject, db)
+def add_subproject(
+    new_subproject: SubprojectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+     created_subproject = add_new_subproject(new_subproject, db, actor_id=current_user.userId)
      return created_subproject
 
 @router.patch("/subprojects/{subproject_id}", response_model=SubprojectOut, dependencies=[Depends(require_permission("subproject:update"))])
