@@ -34,6 +34,15 @@ PERMISSIONS = [
 ]
 
 # role -> permission names. "client" is absent — its access is resource-scoped, not permission-based.
+#
+# "org:view_all" is deliberately excluded from vendor's blanket grant — a
+# vendor is meant to see their own organization via identity (User.userOrg),
+# not a blanket "view any org" permission. Granting it to the whole role
+# meant any vendor could view (and, via the same check reused there, update)
+# every OTHER org too — a real cross-tenant leak, caught by testing live
+# rather than assumed away. Reserved for a future platform-operator/sales
+# role once that actually exists — see routes/organizations.py.
+_VENDOR_EXCLUDED_PERMISSIONS = {"org:view_all"}
 ROLE_PERMISSIONS = {
-    "vendor": [name for name, _ in PERMISSIONS],
+    "vendor": [name for name, _ in PERMISSIONS if name not in _VENDOR_EXCLUDED_PERMISSIONS],
 }
