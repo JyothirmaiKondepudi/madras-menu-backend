@@ -16,6 +16,12 @@ class Project(Base):
     projectEndDate = Column("project_end_date", DateTime, default=datetime.now)
     vendorOnProject = Column("vendor_on_project", UUID(as_uuid=True), ForeignKey('user_data.user_id'))
     clientId = Column("client_id", UUID(as_uuid=True), ForeignKey('user_data.user_id'), nullable=False)
+    # The tenant this project belongs to — nullable only because existing
+    # rows predate Organization; set automatically from the creating
+    # vendor's own org, never client-supplied. Invoice/Subproject scope by
+    # joining through here rather than each carrying their own copy, so
+    # there's exactly one place a project's org can drift from.
+    organizationId = Column("organization_id", UUID(as_uuid=True), ForeignKey('organizations.org_id'), nullable=True)
     # The invoice the client actually went ahead with; null until set explicitly.
     # use_alter=True: invoices already FKs to projects, so this avoids a circular FK.
     finalInvoiceId = Column(
@@ -29,6 +35,7 @@ class Project(Base):
     vendor = relationship('User', foreign_keys=[vendorOnProject])
     users = relationship('User', secondary='user_projects', back_populates='projects')
     finalInvoice = relationship('Invoice', foreign_keys=[finalInvoiceId])
+    organization = relationship('Organization', foreign_keys=[organizationId])
 
 
 user_projects = Table(

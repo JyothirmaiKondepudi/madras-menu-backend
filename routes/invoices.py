@@ -14,7 +14,7 @@ router = APIRouter()
 @router.get("/invoices",response_model=list[InvoiceOut])
 def get_invoices(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if user_has_permission(current_user, "invoice:view_all", db):
-        return get_all_invoices(db)
+        return get_all_invoices(current_user.userOrg, db)
     return get_invoices_by_user_id(current_user.userId, db)
 
 @router.get("/invoices/projects/{project_id}", response_model=list[InvoiceOut])
