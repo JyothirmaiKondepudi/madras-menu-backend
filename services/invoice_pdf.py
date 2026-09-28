@@ -1,15 +1,5 @@
-"""
-Generates and stores a PDF for an invoice. Kept separate from
-services/invoices.py (a plain DB-CRUD file) since this is a genuinely
-different kind of concern — building a binary document, not querying the
-database — same reasoning that split embeddings/hierarchy into their own
-modules rather than dumping everything into one file.
-
-Storage: generate-and-store, not generate-on-demand. The PDF is built and
-saved to disk on every create AND every update (services/invoices.py calls
-this after both), so re-fetching it later (GET /invoices/{id}/pdf) always
-serves the current state — never a stale snapshot from creation time.
-"""
+"""Generates and stores a PDF for an invoice. Called by services/invoices.py on
+every create and update, so the stored file always reflects current state."""
 
 import os
 from pathlib import Path
@@ -19,8 +9,6 @@ from reportlab.pdfgen import canvas
 
 from models import Invoice, User
 
-# Default lives next to the repo, not tied to whatever directory the
-# process happens to be started from.
 INVOICE_PDF_DIR = Path(
     os.environ.get("INVOICE_PDF_DIR", Path(__file__).resolve().parent.parent / "storage" / "invoices")
 )

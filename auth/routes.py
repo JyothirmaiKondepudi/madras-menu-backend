@@ -16,9 +16,6 @@ router = APIRouter()
 def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     user = authenticate_user(credentials.email, credentials.password, db)
     if user is None:
-        # Same message whether the email doesn't exist or the password was
-        # wrong — a specific message either way would tell a caller which
-        # emails have accounts.
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_access_token(user.userId)
     return TokenResponse(access_token=token)

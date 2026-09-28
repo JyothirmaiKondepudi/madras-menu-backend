@@ -1,25 +1,12 @@
 #!/usr/bin/env python3
-"""
-Prototype: propose parent_of edges for the dish hierarchy, from real (or
-fixture) MenuItem rows. See the plan doc:
-~/.claude/plans/declarative-baking-cookie.md
-
-This script never writes to the database — it only produces a markdown
-report for a human to review (today's review step, mirroring this repo's
-existing draft -> /review -> promote pattern for menu items themselves).
+"""Proposes parent_of edges for the dish hierarchy and writes a markdown report
+for human review. Never writes to the database itself.
 
 Usage:
-    # Dry run — no DB, no LLM, uses a small hardcoded fixture (including a
-    # deliberately bad proposal) to prove the validation/report plumbing
-    # works end-to-end. Safe to run right now, no setup required beyond
-    # the packages already in this repo (or in a venv you install into).
+    # Dry run — hardcoded fixture, fake LLM response, no DB or setup needed
     python3 propose_hierarchy.py --dry-run
 
-    # Real run — reads seeded items from a local Postgres DB and calls the
-    # LLM. NOT WIRED UP YET: call_llm() below raises NotImplementedError
-    # until a real provider (Vertex AI, or the Anthropic API) is added —
-    # see DESIGN.md for why the first real batch was classified inline by
-    # Claude in a coding session instead, at zero API cost.
+    # Real run — reads items from Postgres. call_llm() isn't wired up yet.
     DATABASE_URL="postgresql://jyothirmaikondepudi@localhost:5432/madras_menu_local" \\
         python3 propose_hierarchy.py
 """
@@ -29,9 +16,7 @@ import json
 import os
 import sys
 
-# Make `hierarchy` importable regardless of the caller's cwd (so
-# `python3 scripts/propose_hierarchy.py` works from the repo root, not
-# just from inside scripts/).
+# Make `hierarchy` importable regardless of the caller's cwd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from hierarchy.dedupe import find_duplicate_clusters
@@ -54,14 +39,9 @@ def fetch_items_from_db(database_url: str) -> list[dict]:
 
 
 def call_llm(items: list[dict]) -> dict:
-    """
-    TODO: wire up the Vertex AI SDK here once GCP billing/project is set
-    up. Build the prompt with build_prompt(items), pass RESPONSE_JSON_SCHEMA
-    as the model's response_schema (structured JSON output), and return the
-    parsed {"proposals": [...]} dict — same shape _dry_run_response()
-    returns below, so nothing else in this script needs to change.
-    """
-    _ = build_prompt(items)  # already usable today; just not sent anywhere yet
+    """TODO: build_prompt(items) + RESPONSE_JSON_SCHEMA, call the LLM, return
+    a parsed {"proposals": [...]} dict matching _dry_run_response()'s shape."""
+    _ = build_prompt(items)
     raise NotImplementedError(
         "call_llm() isn't wired up yet — run with --dry-run for now, "
         "or fill this in once the Vertex AI SDK is set up."
@@ -69,10 +49,8 @@ def call_llm(items: list[dict]) -> dict:
 
 
 def _dry_run_fixture() -> list[dict]:
-    """Small hardcoded item set, styled after real dish names in the
-    catalog (including a real-looking near-duplicate, like the actual
-    'Aloo baingan masala' / 'Aloo Baingan Masala' duplicate found in the
-    live data) — enough to exercise every code path without a DB or LLM."""
+    """Small hardcoded item set, including a near-duplicate pair, enough to
+    exercise every code path without a DB or LLM."""
     return [
         {"id": "a1", "name": "Basmati Rice", "course": "side", "cuisine_tags": ["north_indian"]},
         {"id": "a2", "name": "Chicken Biryani", "course": "main", "cuisine_tags": ["hyderabadi", "south_indian"]},
@@ -84,10 +62,8 @@ def _dry_run_fixture() -> list[dict]:
 
 
 def _dry_run_response() -> dict:
-    """A fake LLM response — deliberately includes one bad case (a1/a2
-    proposed as each other's parent, a genuine cycle) to prove
-    validate_proposals() actually catches it rather than silently trusting
-    every proposal."""
+    """A fake LLM response — includes one bad case (a1/a2 proposed as each
+    other's parent, a cycle) to prove validate_proposals() catches it."""
     return {
         "proposals": [
             {
@@ -120,10 +96,7 @@ def _dry_run_response() -> dict:
                 "reason": "generic curry, not a variant of anything else in this list",
                 "confidence": "medium",
             },
-            # Note: "a6" (the "Aloo baingan masala" casing duplicate of a5)
-            # deliberately has no entry here — it gets filtered out by
-            # find_duplicate_clusters() before classification even happens,
-            # so the LLM (real or fake) never sees it as a separate item.
+            # "a6" has no entry — find_duplicate_clusters() filters it out first
         ]
     }
 

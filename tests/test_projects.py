@@ -144,8 +144,7 @@ def test_add_user_to_project_requires_vendor(client, test_client_login, test_pro
 def test_add_user_to_project_is_idempotent(client, test_client_login, test_project, vendor_auth_headers):
     url = f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}"
     assert client.post(url, headers=vendor_auth_headers).status_code == 200
-    # linking the same user again should not error (e.g. a duplicate-row
-    # IntegrityError from user_projects' composite primary key)
+    # linking the same user again should not error
     assert client.post(url, headers=vendor_auth_headers).status_code == 200
 
 
