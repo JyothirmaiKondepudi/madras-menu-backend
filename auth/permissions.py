@@ -26,6 +26,11 @@ PERMISSIONS = [
     ("menu_item:delete", "Delete a menu item"),
     ("hierarchy:manage", "Read or write the dish hierarchy (item_relationships)"),
     ("embedding:manage", "Generate or search menu item embeddings"),
+    ("org:list", "list every org present"),
+    ("org:view_all", "view any org profile"),
+    ("org:create", "create a new org"),
+    ("org:update", "edit org account"),
+    ("org:delete", "delete org account"),
 ]
 
 # role -> permission names. "client" is absent — its access is resource-scoped, not permission-based.

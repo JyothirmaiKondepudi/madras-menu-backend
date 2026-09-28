@@ -14,6 +14,7 @@ from routes.item_relationships import router as item_relationships_router
 from embeddings.routes import router as embeddings_router
 from auth.routes import router as auth_router
 from routes.notifications import router as notifications_router
+from routes.organizations import router as org_router
 from hierarchy.mutations import HierarchyError
 
 # Schema is managed by Alembic migrations — run `alembic upgrade head` after changing a model.
@@ -21,6 +22,7 @@ from hierarchy.mutations import HierarchyError
 logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI()
+app.include_router(org_router)
 app.include_router(users_router)
 app.include_router(projects_router)
 app.include_router(invoice_router)
@@ -37,6 +39,7 @@ app.include_router(notifications_router)
 # One handler per error type, registered here so every route (including future
 # ones) gets consistent error responses without a try/except per route.
 
+
 @app.exception_handler(HierarchyError)
 def handle_hierarchy_error(request: Request, exc: HierarchyError):
     # rejected mutation (cycle, self-parent, etc.) — not a bug, an invalid request
@@ -46,7 +49,9 @@ def handle_hierarchy_error(request: Request, exc: HierarchyError):
 @app.exception_handler(IntegrityError)
 def handle_integrity_error(request: Request, exc: IntegrityError):
     # constraint violation (unique, FK, not-null) surfaced by Postgres
-    logger.warning("IntegrityError on %s %s: %s", request.method, request.url.path, exc.orig)
+    logger.warning(
+        "IntegrityError on %s %s: %s", request.method, request.url.path, exc.orig
+    )
     return JSONResponse(status_code=409, content={"detail": str(exc.orig)})
 
 
@@ -56,17 +61,26 @@ def handle_operational_error(request: Request, exc: OperationalError):
     logger.error("OperationalError on %s %s: %s", request.method, request.url.path, exc)
     return JSONResponse(
         status_code=503,
-        content={"detail": "Database is currently unavailable. Please try again shortly."},
+        content={
+            "detail": "Database is currently unavailable. Please try again shortly."
+        },
     )
 
 
 @app.exception_handler(ConnectionError)
 def handle_ollama_connection_error(request: Request, exc: ConnectionError):
     # Ollama (embedding/LLM service) unreachable, raised as a plain ConnectionError
-    logger.error("ConnectionError (likely Ollama unreachable) on %s %s: %s", request.method, request.url.path, exc)
+    logger.error(
+        "ConnectionError (likely Ollama unreachable) on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+    )
     return JSONResponse(
         status_code=503,
-        content={"detail": "The embedding/LLM service (Ollama) is currently unavailable. Please try again shortly."},
+        content={
+            "detail": "The embedding/LLM service (Ollama) is currently unavailable. Please try again shortly."
+        },
     )
 
 
@@ -74,7 +88,9 @@ def handle_ollama_connection_error(request: Request, exc: ConnectionError):
 def handle_unexpected_error(request: Request, exc: Exception):
     # last resort — logged in full server-side, never leaked to the client
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
-    return JSONResponse(status_code=500, content={"detail": "An unexpected error occurred."})
+    return JSONResponse(
+        status_code=500, content={"detail": "An unexpected error occurred."}
+    )
 
 
 @app.get("/")
