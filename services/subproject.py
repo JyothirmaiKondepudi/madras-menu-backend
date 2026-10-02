@@ -1,6 +1,7 @@
 from models import Project, Subproject
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
+from services.account_activity import record_activity
 
 # shared by every query that returns a SubprojectOut, since it now nests
 # project -> client / vendor
@@ -18,7 +19,7 @@ def get_all_subprojects(db: Session):
 def get_subproject_by_subproject_id(subproject_id, db: Session):
     return db.get(Subproject, subproject_id, options=[_WITH_PROJECT_AND_USERS])
 
-def add_new_subproject(new_subproject, db: Session):
+def add_new_subproject(new_subproject, db: Session, actor_id=None):
     created_subproject = Subproject(
         subprojectName=new_subproject.subprojectName,
         projectAssociatedTo=new_subproject.projectAssociatedTo,
@@ -35,6 +36,14 @@ def add_new_subproject(new_subproject, db: Session):
     db.add(created_subproject)
     db.commit()
     db.refresh(created_subproject)
+    record_activity(
+        db,
+        activity_type="subproject_created",
+        description=f"Subproject \"{created_subproject.subprojectName}\" was created",
+        project_id=created_subproject.projectAssociatedTo,
+        subproject_id=created_subproject.subprojectId,
+        actor_id=actor_id,
+    )
     return created_subproject
 
 def update_subproject_by_subproject_id(subproject_id, updates, db: Session):

@@ -2,6 +2,8 @@ from models import Project, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from schemas.project import ProjectUpdate
+from services.account_activity import record_activity
+from services.notifications import create_notification
 
 
 def get_all_projects(db:Session):
@@ -10,7 +12,7 @@ def get_all_projects(db:Session):
 def get_project_by_id(project_id, db:Session):
     return db.get(Project, project_id)
 
-def add_new_Project(newProject, db:Session):
+def add_new_Project(newProject, db:Session, actor_id=None):
 
     created_Project = Project(
         projectName=newProject.projectName,
@@ -24,6 +26,13 @@ def add_new_Project(newProject, db:Session):
     db.commit()
     print(f"commited to database succesfully")
     db.refresh(created_Project)
+    record_activity(
+        db,
+        activity_type="project_created",
+        description=f"Project \"{created_Project.projectName}\" was created",
+        project_id=created_Project.projectId,
+        actor_id=actor_id,
+    )
     return created_Project
 
 def update_project_by_project_id(project_id, updates: ProjectUpdate, db: Session):
@@ -63,11 +72,12 @@ def set_final_invoice(project: Project, invoice_id, db: Session) -> Project:
     db.refresh(project)
     return project
 
-def add_user_to_project(project_id, user_id, db: Session):
+def add_user_to_project(project_id, user_id, db: Session, actor_id=None):
     """Links an already-existing user to an already-existing project via
     user_projects — the "add an existing client" action. Returns None if
     either id doesn't exist. Idempotent: linking an already-linked user
-    again is a no-op, not a conflict."""
+    again is a no-op, not a conflict — and not logged again either, since
+    nothing actually happened the second time."""
     project = db.get(Project, project_id)
     if project is None:
         return None
@@ -79,4 +89,30 @@ def add_user_to_project(project_id, user_id, db: Session):
         project.users.append(user)
         db.commit()
         db.refresh(project)
+        record_activity(
+            db,
+            activity_type="project_assigned",
+            description=f"{user.fullName} was added to project \"{project.projectName}\"",
+            project_id=project.projectId,
+            actor_id=actor_id,
+        )
+        # Notify the vendor and the project's original client — but never
+        # notify someone about their own addition (e.g. linking the
+        # project's own clientId to it via this same endpoint).
+        if project.vendorOnProject is not None and project.vendorOnProject != user.userId:
+            create_notification(
+                db,
+                user_id=project.vendorOnProject,
+                type="project_user_added",
+                message=f"{user.fullName} was added to project \"{project.projectName}\"",
+                related_user_id=user.userId,
+            )
+        if project.clientId != user.userId:
+            create_notification(
+                db,
+                user_id=project.clientId,
+                type="project_user_added",
+                message=f"{user.fullName} was added to your project \"{project.projectName}\"",
+                related_user_id=user.userId,
+            )
     return project
