@@ -12,19 +12,11 @@ class Invoice(Base):
     invoiceStatus = Column("invoice_status", Enum('Generated', 'Assigned', 'Pending', 'Accepted', 'Paid', 'Declined', name='invoice_status_enum'), nullable=False)
     invoiceAmount = Column("invoice_amount", Float, nullable=False)
     invoiceAssignedTo = Column("invoice_assigned_to", UUID(as_uuid=True), ForeignKey('user_data.user_id'), nullable=False)
-    # A project can have more than one invoice over its lifecycle (deposit,
-    # balance, add-ons) — same shape as Subproject.projectAssociatedTo, not a
-    # one-to-one. Replaces the old, never-populated Project.project_invoice.
+    # A project can have many invoices (deposit, balance, add-ons).
     projectAssociatedTo = Column("project_associated_to", UUID(as_uuid=True), ForeignKey('projects.project_id'), nullable=False)
-    # Nullable: which specific subproject (if any) this invoice was
-    # generated for — a project can have several subprojects, so knowing
-    # the project alone isn't enough to say which one a given invoice (and
-    # its billing history) belongs to. Null covers project-level invoices
-    # (e.g. a deposit) not tied to one particular subproject.
+    # Null for project-level invoices (e.g. a deposit).
     subprojectId = Column("subproject_id", UUID(as_uuid=True), ForeignKey('subprojects.subproject_id'), nullable=True)
 
-    # foreign_keys explicit now that Project.finalInvoiceId creates a second,
-    # opposite-direction FK path between these two tables — without this,
-    # SQLAlchemy can't tell which one defines "an invoice's own project."
+    # Explicit foreign_keys: Project.finalInvoiceId adds a second FK path.
     project = relationship('Project', foreign_keys=[projectAssociatedTo])
     subproject = relationship('Subproject')
