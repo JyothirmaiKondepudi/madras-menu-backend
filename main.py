@@ -3,6 +3,10 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, OperationalError
+from starlette.concurrency import run_in_threadpool
+import time
+import uuid
+import ipaddress
 
 from routes.users import router as users_router
 from routes.projects import router as projects_router
@@ -17,6 +21,7 @@ from routes.notifications import router as notifications_router
 from routes.billing_history import router as billing_history_router
 from routes.billing_info import router as billing_info_router
 from routes.organizations import router as org_router
+from services.api_log_activity import record_api_log
 from hierarchy.mutations import HierarchyError
 
 # Schema is managed by Alembic migrations — run `alembic upgrade head` after changing a model.
@@ -37,6 +42,48 @@ app.include_router(auth_router)
 app.include_router(notifications_router)
 app.include_router(billing_history_router)
 app.include_router(billing_info_router)
+
+# --- API activity logging ---------------------------------------------------
+# One api_logs row per request, including 401/422/404s and unhandled 500s.
+
+
+def _client_ip(request: Request) -> str | None:
+    host = request.client.host if request.client else None
+    try:
+        return str(ipaddress.ip_address(host)) if host else None
+    except ValueError:  # e.g. "testclient"
+        return None
+
+
+@app.middleware("http")
+async def log_api_activity(request: Request, call_next):
+    start = time.perf_counter()
+    request_id = uuid.uuid4()
+    status_code, error = 500, None
+    try:
+        response = await call_next(request)  # runs auth, validation, the route
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = str(request_id)
+        return response
+    except Exception as exc:
+        error = repr(exc)
+        raise
+    finally:
+        await run_in_threadpool(
+            record_api_log,  # own session, wrapped in try/except so it never breaks the request
+            requestId=request_id,
+            orgId=getattr(request.state, "org_id", None),
+            method=request.method,
+            queryParams=dict(request.query_params) or None,
+            userAgent=request.headers.get("user-agent"),
+            path=request.url.path,
+            route=getattr(request.scope.get("route"), "path", None),
+            statusCode=status_code,
+            duration_ms=int((time.perf_counter() - start) * 1000),
+            userId=getattr(request.state, "user_id", None),
+            ipAddress=_client_ip(request),
+            error=error,
+        )
 
 
 # --- Global error handling --------------------------------------------------

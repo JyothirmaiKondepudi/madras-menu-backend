@@ -1,5 +1,5 @@
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ _UNAUTHORIZED = HTTPException(
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -31,16 +32,23 @@ def get_current_user(
     user = db.get(User, user_id)
     if user is None:
         raise _UNAUTHORIZED
+    request.state.user_id = user.userId
+    request.state.org_id = user.userOrg
     return user
 
 
 def user_has_permission(user: User, permission_name: str, db: Session) -> bool:
     """Table-driven permission check against role_permissions/permissions."""
-    return db.execute(
-        select(RolePermission)
-        .join(Permission, Permission.id == RolePermission.permissionId)
-        .where(RolePermission.role == user.userRole, Permission.name == permission_name)
-    ).first() is not None
+    return (
+        db.execute(
+            select(RolePermission)
+            .join(Permission, Permission.id == RolePermission.permissionId)
+            .where(
+                RolePermission.role == user.userRole, Permission.name == permission_name
+            )
+        ).first()
+        is not None
+    )
 
 
 def require_permission(permission_name: str):
@@ -51,7 +59,8 @@ def require_permission(permission_name: str):
     ) -> User:
         if not user_has_permission(current_user, permission_name, db):
             raise HTTPException(
-                status_code=403, detail=f"missing required permission: {permission_name}"
+                status_code=403,
+                detail=f"missing required permission: {permission_name}",
             )
         return current_user
 

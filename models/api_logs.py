@@ -3,6 +3,7 @@ from sqlalchemy import (
     String,
     DateTime,
     Integer,
+    func,
     Index,
     ForeignKey,
 )
@@ -22,16 +23,32 @@ class ApiLogs(Base):
     )
 
     id = Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    occurredAt = Column("occurred_at", DateTime, default=datetime.now)
+    occurredAt = Column(
+        "occurred_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
     requestId = Column("request_id", UUID(as_uuid=True), nullable=False)
     method = Column("method", String, nullable=False)
     path = Column("path", String, nullable=False)
     route = Column("route", String)
-    queryParams = Column("query_params", JSONB)
+    queryParams = Column("query_params", JSONB(none_as_null=True))
     statusCode = Column("status_code", Integer, nullable=False)
     duration_ms = Column("duration_ms", Integer, nullable=False)
-    userId = Column("user_id", UUID(as_uuid=True), ForeignKey("user_data.user_id"))
-    orgId = Column("org_id", UUID(as_uuid=True), ForeignKey("organizations.org_id"))
-    ipAddress = Column("ip_address", INET)
+    userId = Column(
+        "user_id",
+        UUID(as_uuid=True),
+        ForeignKey("user_data.user_id", ondelete="SET NULL"),
+    )
+    orgId = Column(
+        "org_id",
+        UUID(as_uuid=True),
+        ForeignKey("organizations.org_id", ondelete="SET NULL"),
+    )
+    ipAddress = Column(
+        "ip_address",
+        INET,
+    )
     userAgent = Column("user_agent", String)
     error = Column("error", String)
