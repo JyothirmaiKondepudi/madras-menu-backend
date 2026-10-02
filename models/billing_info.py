@@ -9,9 +9,7 @@ from database import Base
 class BillingInfo(Base):
     __tablename__ = 'billing_info'
 
-    # One row per subproject — subprojectId IS the primary key, not a
-    # separate generated id, and it's a real FK so this can't ever point at
-    # a subproject that doesn't exist.
+    # One row per subproject; subprojectId is both PK and FK.
     subprojectId = Column('subproject_id', UUID(as_uuid=True), ForeignKey('subprojects.subproject_id'), primary_key=True)
     totalInvoiced = Column("total_invoiced", Float)
     totalPaid = Column('total_paid', Float)

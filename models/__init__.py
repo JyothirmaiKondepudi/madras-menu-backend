@@ -26,6 +26,7 @@ from .account_activity import AccountActivity
 from .organizations import Organization
 from .price_tier import PriceTier
 from .live_station import LiveStation
+from .api_logs import ApiLogs
 
 __all__ = [
     "User",
@@ -45,4 +46,5 @@ __all__ = [
     "Organization",
     "PriceTier",
     "LiveStation",
+    "ApiLogs",
 ]
