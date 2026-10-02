@@ -19,8 +19,15 @@ class Invoice(Base):
     # balance, add-ons) — same shape as Subproject.projectAssociatedTo, not a
     # one-to-one. Replaces the old, never-populated Project.project_invoice.
     projectAssociatedTo = Column("project_associated_to", UUID(as_uuid=True), ForeignKey('projects.project_id'), nullable=False)
+    # Nullable: which specific subproject (if any) this invoice was
+    # generated for — a project can have several subprojects, so knowing
+    # the project alone isn't enough to say which one a given invoice (and
+    # its billing history) belongs to. Null covers project-level invoices
+    # (e.g. a deposit) not tied to one particular subproject.
+    subprojectId = Column("subproject_id", UUID(as_uuid=True), ForeignKey('subprojects.subproject_id'), nullable=True)
 
     # foreign_keys explicit now that Project.finalInvoiceId creates a second,
     # opposite-direction FK path between these two tables — without this,
     # SQLAlchemy can't tell which one defines "an invoice's own project."
     project = relationship('Project', foreign_keys=[projectAssociatedTo])
+    subproject = relationship('Subproject')

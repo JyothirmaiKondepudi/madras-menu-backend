@@ -20,6 +20,8 @@ from .menu_item import MenuItem
 from .item_relationship import ItemRelationship
 from .permission import Permission, RolePermission
 from .notifications import Notification
+from .billing_history import BillingHistory
+from .billing_info import BillingInfo
 
 __all__ = [
     "User",
@@ -33,4 +35,6 @@ __all__ = [
     "Permission",
     "RolePermission",
     "Notification",
+    "BillingHistory",
+    "BillingInfo",
 ]

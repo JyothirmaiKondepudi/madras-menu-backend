@@ -35,6 +35,8 @@ PERMISSIONS = [
     ("invoice:create", "Create a new invoice"),
     ("invoice:update", "Edit any invoice"),
     ("invoice:delete", "Delete an invoice"),
+    ("billing:view_all", "View any subproject's billing history/info, not just your own"),
+    ("billing:create", "Record a billing transaction (e.g. a manually-entered payment)"),
     ("tax_category:manage", "Read or write tax categories/rates"),
     ("menu_item:create", "Add a new menu item"),
     ("menu_item:update", "Edit a menu item"),

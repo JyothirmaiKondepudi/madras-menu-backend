@@ -10,6 +10,7 @@ class InvoiceOut(BaseModel):
     invoiceAmount: float
     invoiceAssignedTo: UUID
     projectAssociatedTo: UUID
+    subprojectId: UUID | None = None
     project: ProjectOut
 
     model_config = ConfigDict(from_attributes=True)
@@ -20,6 +21,7 @@ class InvoiceCreate(BaseModel):
     invoiceAmount: float
     invoiceAssignedTo: UUID
     projectAssociatedTo: UUID
+    subprojectId: UUID | None = None
 
 
 class InvoiceUpdate(BaseModel):
@@ -27,3 +29,4 @@ class InvoiceUpdate(BaseModel):
     invoiceAmount: float | None = None
     invoiceAssignedTo: UUID | None = None
     projectAssociatedTo: UUID | None = None
+    subprojectId: UUID | None = None
