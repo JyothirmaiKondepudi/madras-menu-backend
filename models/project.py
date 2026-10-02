@@ -16,21 +16,14 @@ class Project(Base):
     projectEndDate = Column("project_end_date", DateTime, default=datetime.now)
     vendorOnProject = Column("vendor_on_project", UUID(as_uuid=True), ForeignKey('user_data.user_id'))
     clientId = Column("client_id", UUID(as_uuid=True), ForeignKey('user_data.user_id'), nullable=False)
-    # A project can have several invoices over time (revisions, drafts) —
-    # this points at the one the client actually went ahead with, so the
-    # vendor has a single answer to "which invoice is the real one for this
-    # project." Null until explicitly set (see PATCH
-    # /projects/{id}/final-invoice/{invoice_id}) — never inferred from
-    # invoiceStatus or "most recent," since neither reliably means "the
-    # client accepted this one."
-    # use_alter=True + an explicit name: invoices.project_associated_to
-    # already points at projects, so this column creates a genuine cycle
-    # between the two tables. Without use_alter, Base.metadata.create_all()
-    # (what the test suite uses to build a fresh schema) silently drops one
-    # of the two FK constraints instead of erroring — caught for real when
-    # test_projects.py started raising IntegrityError on insert. use_alter
-    # defers this one constraint to a separate ALTER TABLE after both
-    # tables exist, which resolves the cycle cleanly.
+    # The tenant this project belongs to — nullable only because existing
+    # rows predate Organization; set automatically from the creating
+    # vendor's own org, never client-supplied. Invoice/Subproject scope by
+    # joining through here rather than each carrying their own copy, so
+    # there's exactly one place a project's org can drift from.
+    organizationId = Column("organization_id", UUID(as_uuid=True), ForeignKey('organizations.org_id'), nullable=True)
+    # The invoice the client actually went ahead with; null until set explicitly.
+    # use_alter=True: invoices already FKs to projects, so this avoids a circular FK.
     finalInvoiceId = Column(
         "final_invoice_id",
         UUID(as_uuid=True),
@@ -42,6 +35,7 @@ class Project(Base):
     vendor = relationship('User', foreign_keys=[vendorOnProject])
     users = relationship('User', secondary='user_projects', back_populates='projects')
     finalInvoice = relationship('Invoice', foreign_keys=[finalInvoiceId])
+    organization = relationship('Organization', foreign_keys=[organizationId])
 
 
 user_projects = Table(

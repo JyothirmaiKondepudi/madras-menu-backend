@@ -55,6 +55,7 @@ OWNED_TABLES = {
     "user_data", "projects", "invoices", "subprojects", "user_projects", "menu_item_embeddings",
     "permissions", "role_permissions", "notifications", "billing_history", "billing_info",
     "account_activity",
+    "organizations",
 }
 
 

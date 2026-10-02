@@ -11,9 +11,15 @@ _WITH_PROJECT_AND_USERS = joinedload(Subproject.project).options(
 )
 
 
-def get_all_subprojects(db: Session):
+def get_all_subprojects(organization_id, db: Session):
+    """"All subprojects" now means all subprojects in the caller's own
+    organization — scoped by joining through Subproject's own project,
+    same reasoning as get_all_invoices."""
     return db.execute(
-        select(Subproject).options(_WITH_PROJECT_AND_USERS)
+        select(Subproject)
+        .join(Project, Subproject.projectAssociatedTo == Project.projectId)
+        .where(Project.organizationId == organization_id)
+        .options(_WITH_PROJECT_AND_USERS)
     ).scalars().all()
 
 def get_subproject_by_subproject_id(subproject_id, db: Session):

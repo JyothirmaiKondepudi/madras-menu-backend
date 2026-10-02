@@ -14,8 +14,18 @@ _WITH_PROJECT_AND_USERS = joinedload(Invoice.project).options(
 )
 
 
-def get_all_invoices(db: Session):
-    return db.execute(select(Invoice).options(_WITH_PROJECT_AND_USERS)).scalars().all()
+def get_all_invoices(organization_id, db: Session):
+    """"All invoices" now means all invoices in the caller's own
+    organization — scoped by joining through Invoice's own project,
+    since Invoice doesn't carry its own organizationId (Project is the
+    single source of truth for which org a piece of business data belongs
+    to)."""
+    return db.execute(
+        select(Invoice)
+        .join(Project, Invoice.projectAssociatedTo == Project.projectId)
+        .where(Project.organizationId == organization_id)
+        .options(_WITH_PROJECT_AND_USERS)
+    ).scalars().all()
 
 def get_invoice_by_id(invoice_id, db: Session):
     return db.get(Invoice, invoice_id, options=[_WITH_PROJECT_AND_USERS])

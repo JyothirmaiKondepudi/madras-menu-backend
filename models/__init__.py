@@ -23,6 +23,7 @@ from .notifications import Notification
 from .billing_history import BillingHistory
 from .billing_info import BillingInfo
 from .account_activity import AccountActivity
+from .organizations import Organization
 
 __all__ = [
     "User",
@@ -39,4 +40,5 @@ __all__ = [
     "BillingHistory",
     "BillingInfo",
     "AccountActivity",
+    "Organization",
 ]

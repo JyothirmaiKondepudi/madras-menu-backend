@@ -6,13 +6,19 @@ from services.account_activity import record_activity
 from services.notifications import create_notification
 
 
-def get_all_projects(db:Session):
-    return db.execute(select(Project)).scalars().all()
+def get_all_projects(organization_id, db: Session):
+    """"All projects" now means all projects in the caller's own
+    organization — not literally every project in the database. Passing
+    organization_id=None (a vendor not yet assigned to an org) matches
+    only projects that are themselves org-less, never every tenant's."""
+    return db.execute(
+        select(Project).where(Project.organizationId == organization_id)
+    ).scalars().all()
 
 def get_project_by_id(project_id, db:Session):
     return db.get(Project, project_id)
 
-def add_new_Project(newProject, db:Session, actor_id=None):
+def add_new_Project(newProject, db: Session, organization_id=None, actor_id=None):
 
     created_Project = Project(
         projectName=newProject.projectName,
@@ -21,6 +27,7 @@ def add_new_Project(newProject, db:Session, actor_id=None):
         projectEndDate=newProject.projectEndDate,
         vendorOnProject=newProject.vendorOnProject,
         clientId=newProject.clientId,
+        organizationId=organization_id,
     )
     db.add(created_Project)
     db.commit()

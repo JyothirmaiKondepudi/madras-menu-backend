@@ -136,9 +136,7 @@ def test_update_invoice_regenerates_pdf(client, test_user, test_project, vendor_
     )
 
     updated_pdf = client.get(f"/invoices/{created['invoiceId']}/pdf", headers=vendor_auth_headers).content
-    # reportlab compresses its content stream, so the literal "999.00" isn't
-    # visible in the raw bytes — checking the file actually changed is the
-    # reliable signal that update_invoice_by_invoice_id really regenerated it.
+    # reportlab compresses content, so just check the file actually changed
     assert updated_pdf != original_pdf
 
 
@@ -229,9 +227,7 @@ def test_client_accepting_invoice_notifies_both_client_and_vendor(
     assert resp.status_code == 200, resp.text
     assert resp.json()["invoiceStatus"] == "Accepted"
 
-    # both the client (who acted) and the project's vendor should have a
-    # real unread notification about it now — see tests/test_notifications.py
-    # for the notifications module itself
+    # both the acting client and the project's vendor should get a notification
     client_unread = client.get(
         "/notifications/unread", headers={"Authorization": f"Bearer {client_token}"}
     ).json()

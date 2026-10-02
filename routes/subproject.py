@@ -12,7 +12,7 @@ router = APIRouter()
 @router.get("/subprojects",response_model=list[SubprojectOut])
 def get_subprojects(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if user_has_permission(current_user, "subproject:view_all", db):
-        return get_all_subprojects(db)
+        return get_all_subprojects(current_user.userOrg, db)
     return get_subprojects_by_project_ids(user_project_ids(current_user), db)
 
 @router.get("/subprojects/projects/{project_id}", response_model=list[SubprojectOut])
