@@ -2,9 +2,8 @@ from sqlalchemy import Column, String, DateTime, ForeignKey, Index, func
 from pgvector.sqlalchemy import Vector
 from database import Base
 
-# Brand-new table, owned entirely by this app (in Alembic's OWNED_TABLES,
-# see alembic/env.py) — never touches menu_items itself, only references
-# it. See docs/ETL_PIPELINE.md for the full design: this is pure
+# Never touches menu_items itself, only references it. See
+# docs/ETL_PIPELINE.md for the full design: this is pure
 # *retrieval* (semantic search for candidate parents), never a second
 # place the tree's actual parent/child structure lives — that stays
 # exclusively in item_relationships. See the README's "makes sense"
