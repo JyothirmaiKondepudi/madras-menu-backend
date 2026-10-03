@@ -7,6 +7,8 @@ from starlette.concurrency import run_in_threadpool
 import time
 import uuid
 import ipaddress
+import os
+from fastapi.middleware.cors import CORSMiddleware
 
 from routes.users import router as users_router
 from routes.projects import router as projects_router
@@ -66,8 +68,16 @@ async def log_api_activity(request: Request, call_next):
         response.headers["X-Request-ID"] = str(request_id)
         return response
     except Exception as exc:
+        # Return the 500 here instead of re-raising: Starlette's own 500 is
+        # built outside every middleware, so it would miss the CORS headers
+        # and the browser would report a CORS error instead of the real one.
         error = repr(exc)
-        raise
+        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+            headers={"X-Request-ID": str(request_id)},
+        )
     finally:
         await run_in_threadpool(
             record_api_log,  # own session, wrapped in try/except so it never breaks the request
@@ -84,6 +94,17 @@ async def log_api_activity(request: Request, call_next):
             ipAddress=_client_ip(request),
             error=error,
         )
+
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["X-Request-ID"],
+    max_age=600,
+)
 
 
 # --- Global error handling --------------------------------------------------
