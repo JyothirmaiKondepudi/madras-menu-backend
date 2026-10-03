@@ -82,3 +82,14 @@ def load_project_in_org(
     if project is None or project.organizationId != current_user.userOrg:
         raise HTTPException(status_code=404, detail="project not found")
     return project
+
+
+def load_user_in_org(
+    user_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    user = db.get(User, user_id)
+    if user is None or user.userOrg != current_user.userOrg:
+        raise HTTPException(status_code=404, detail="user not found")
+    return user

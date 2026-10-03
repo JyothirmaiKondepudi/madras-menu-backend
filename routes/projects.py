@@ -11,6 +11,7 @@ from auth.dependencies import (
     require_permission,
     user_has_permission,
     load_project_in_org,
+    load_user_in_org,
 )
 from uuid import UUID
 
@@ -40,10 +41,11 @@ def add_project_user(
     user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    user: User = Depends(load_user_in_org),
     project: Project = Depends(load_project_in_org),
 ):
     updated_project = add_user_to_project(
-        project_id, user_id, db, actor_id=current_user.userId
+        project, user, db, actor_id=current_user.userId
     )
     if updated_project is None:
         raise HTTPException(status_code=404, detail="project or user not found")
@@ -81,6 +83,7 @@ def set_project_final_invoice(
 def getProjectsByUserID(
     user_id: UUID,
     db: Session = Depends(get_db),
+    user: User = Depends(load_user_in_org),
     current_user: User = Depends(get_current_user),
 ):
     if (
