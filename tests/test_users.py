@@ -97,3 +97,28 @@ def test_delete_user(client, test_user, vendor_auth_headers):
 def test_delete_nonexistent_user_returns_404(client, vendor_auth_headers):
     resp = client.delete("/users/00000000-0000-0000-0000-000000000000", headers=vendor_auth_headers)
     assert resp.status_code == 404
+
+
+def test_created_user_inherits_vendor_org(client, vendor_auth_headers, test_vendor_login):
+    resp = client.post("/users", json={
+        "fullName": "Org Member",
+        "email": "org.member@example.com",
+        "phoneNumber": "5551234567",
+        "preferredContact": "email",
+        "role": "client",
+    }, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["userOrg"] == test_vendor_login["userOrg"]
+
+
+def test_create_user_ignores_client_supplied_org(client, vendor_auth_headers, test_vendor_login):
+    resp = client.post("/users", json={
+        "fullName": "Org Hopper",
+        "email": "org.hopper@example.com",
+        "phoneNumber": "5551234567",
+        "preferredContact": "email",
+        "role": "client",
+        "userOrg": "00000000-0000-0000-0000-000000000000",
+    }, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["userOrg"] == test_vendor_login["userOrg"]

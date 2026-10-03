@@ -38,14 +38,13 @@ def get_user_by_email(email, db: Session):
     )
 
 
-def add_new_user(user, db: Session, created_by=None):
+def add_new_user(user, db: Session, created_by: User):
     existing_user = (
         db.execute(select(User).where(User.userEmail == user.email)).scalars().first()
     )
     if existing_user is not None:
         return None
 
-    print(f" {user.email} is not an exsiting user. creating a new user. ")
     created_user = User(
         fullName=user.fullName,
         userEmail=user.email,
@@ -53,32 +52,28 @@ def add_new_user(user, db: Session, created_by=None):
         preferredContact=user.preferredContact,
         userAddress=user.address,
         userRole=user.role,
+        userOrg=created_by.userOrg,
         passwordHash=hash_password(user.password) if user.password else None,
-        createdBy=created_by,
+        createdBy=created_by.userId,
     )
     db.add(created_user)
     db.commit()
 
     db.refresh(created_user)
 
-    # Notify whoever sent this invite — not the new user themselves. Null
-    # for the one bootstrap vendor, who was created directly against the
-    # database, not through this function at all.
-    if created_by is not None:
-        create_notification(
-            db,
-            user_id=created_by,
-            type="user_created",
-            message=f"You added {created_user.fullName} as a new user",
-            related_user_id=created_user.userId,
-        )
-    # Logged unconditionally, unlike the notification above — even the one
-    # bootstrap vendor (created_by=None) gets a row, actorId=None.
+    # Notify whoever sent this invite — not the new user themselves.
+    create_notification(
+        db,
+        user_id=created_by.userId,
+        type="user_created",
+        message=f"You added {created_user.fullName} as a new user",
+        related_user_id=created_user.userId,
+    )
     record_activity(
         db,
         activity_type="user_created",
         description=f"{created_user.fullName} was added as a new user",
-        actor_id=created_by,
+        actor_id=created_by.userId,
     )
     return created_user
 
@@ -90,7 +85,7 @@ def update_user_by_user_id(user_id, updates: UserUpdate, db: Session):
 
     for field, value in updates.model_dump(exclude_unset=True).items():
         setattr(user, USER_FIELD_MAP[field], value)
-    print(f"updated user: {updates}")
+
     db.commit()
     db.refresh(user)
     return user

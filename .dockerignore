@@ -1,0 +1,17 @@
+# Secrets: the container gets these at runtime via env_file in docker-compose.yml
+.env*
+!.env.local.example
+
+# Local virtualenvs (macOS builds; the image installs its own from requirements.txt)
+env/
+.venv/
+
+# Local data and generated files
+storage/
+madras_menu_local.sql
+__pycache__/
+*.pyc
+
+# Not needed to run the app
+.git/
+tests/

@@ -94,20 +94,27 @@ def test_vendor_login(engine):
     """The bootstrap vendor every other fixture/test authenticates as. Created
     directly in the DB, not via POST /users, since that route is vendor-only."""
     from sqlalchemy.orm import sessionmaker
-    from models import User
+    from models import Organization, User
     from auth.security import hash_password
 
     Session = sessionmaker(bind=engine)
     db = Session()
+    # every user needs an org, so the org goes in first (same as scripts/seed_dev.py)
+    org = Organization(orgName="Test Vendor Org", orgEmail="test.vendor.org@example.com", orgDisabled=False)
+    db.add(org)
+    db.flush()
     vendor = User(
         fullName="Login Test Vendor",
         userEmail="login.vendor@example.com",
         userPhoneNumber="5550003333",
         preferredContact="email",
         userRole="vendor",
+        userOrg=org.orgId,
         passwordHash=hash_password("correct-horse-battery-staple"),
     )
     db.add(vendor)
+    db.flush()
+    org.orgVendor = vendor.userId
     db.commit()
     db.refresh(vendor)
     result = {
@@ -115,6 +122,7 @@ def test_vendor_login(engine):
         "fullName": vendor.fullName,
         "userEmail": vendor.userEmail,
         "userRole": vendor.userRole,
+        "userOrg": str(vendor.userOrg),
     }
     db.close()
     return result
