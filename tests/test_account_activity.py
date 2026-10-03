@@ -19,14 +19,16 @@ def _activity_rows(engine, **filters):
 
 
 def _project_with_vendor_and_client(client, vendor_id, client_id, headers):
-    return client.post("/projects", json={
+    project = client.post("/projects", json={
         "projectName": "Activity Test Project",
         "projectStatus": "Proposal",
         "projectStartDate": "2026-11-14T18:00:00",
         "projectEndDate": "2026-11-14T23:00:00",
         "vendorOnProject": vendor_id,
-        "clientId": client_id,
     }, headers=headers).json()
+    if client_id is not None:
+        client.post(f"/projects/{project['projectId']}/users/{client_id}", headers=headers)
+    return project
 
 
 def _subproject_body(project_id):
@@ -156,7 +158,10 @@ def test_project_assigned_writes_activity_once_not_twice(
     # calling it again is a no-op — should NOT write a second row
     assert client.post(url, headers=vendor_auth_headers).status_code == 200
 
-    rows = _activity_rows(engine, projectId=test_project["projectId"], activityType="project_assigned")
+    rows = [
+        r for r in _activity_rows(engine, projectId=test_project["projectId"], activityType="project_assigned")
+        if test_client_login["fullName"] in r.description
+    ]
     assert len(rows) == 1
     assert str(rows[0].actorId) == test_vendor_login["userId"]
     assert test_client_login["fullName"] in rows[0].description
@@ -202,11 +207,10 @@ def test_project_user_added_notifies_vendor_and_original_client(
 def test_project_user_added_skips_self_notification(
     client, test_vendor_login, test_client_login, vendor_auth_headers
 ):
-    """Linking the project's own clientId to their own project (via the
-    same endpoint used to add anyone else) must notify the vendor, but must
-    NOT send the client a notification about themselves."""
+    """Adding a client must notify the vendor, but must NOT send the client
+    a notification about themselves."""
     project = _project_with_vendor_and_client(
-        client, test_vendor_login["userId"], test_client_login["userId"], vendor_auth_headers
+        client, test_vendor_login["userId"], None, vendor_auth_headers
     )
 
     client_token = _login(client, test_client_login["userEmail"])

@@ -1,12 +1,12 @@
 from models import Project, Subproject
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from services.account_activity import record_activity
 
 # shared by every query that returns a SubprojectOut, since it now nests
 # project -> client / vendor
 _WITH_PROJECT_AND_USERS = joinedload(Subproject.project).options(
-    joinedload(Project.client),
+    selectinload(Project.users),
     joinedload(Project.vendor),
 )
 

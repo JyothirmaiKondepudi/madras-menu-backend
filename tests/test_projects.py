@@ -5,7 +5,6 @@ def test_create_project(client, test_user, vendor_auth_headers):
         "projectStartDate": "2026-11-14T18:00:00",
         "projectEndDate": "2026-11-14T23:00:00",
         "vendorOnProject": test_user["userId"],
-        "clientId": test_user["userId"],
     }, headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["projectName"] == "Wedding Reception"
@@ -24,16 +23,15 @@ def test_create_project_requires_vendor(client, test_user, test_client_login):
         "projectStartDate": "2026-11-14T18:00:00",
         "projectEndDate": "2026-11-14T23:00:00",
         "vendorOnProject": test_user["userId"],
-        "clientId": test_user["userId"],
     }, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
 
 
-def test_get_project_includes_nested_client_and_vendor(client, test_project, vendor_auth_headers):
+def test_get_project_includes_nested_clients_and_vendor(client, test_user, test_project, vendor_auth_headers):
     resp = client.get(f"/projects/{test_project['projectId']}", headers=vendor_auth_headers)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["client"]["userId"] == test_project["clientId"]
+    assert [c["userId"] for c in body["clients"]] == [test_user["userId"]]
     assert body["vendor"]["userId"] == test_project["vendorOnProject"]
 
 
@@ -58,20 +56,20 @@ def test_get_project_forbidden_for_unlinked_client(client, test_project, test_cl
     assert resp.status_code == 403
 
 
-def test_get_projects_by_user_id(client, test_project, vendor_auth_headers):
-    resp = client.get(f"/projects/users/{test_project['clientId']}", headers=vendor_auth_headers)
+def test_get_projects_by_user_id(client, test_user, test_project, vendor_auth_headers):
+    resp = client.get(f"/projects/users/{test_user['userId']}", headers=vendor_auth_headers)
     assert resp.status_code == 200
     assert any(p["projectId"] == test_project["projectId"] for p in resp.json())
 
 
-def test_get_projects_by_user_id_forbidden_for_another_user(client, test_project, test_client_login):
+def test_get_projects_by_user_id_forbidden_for_another_user(client, test_user, test_project, test_client_login):
     login_resp = client.post("/auth/login", json={
         "email": test_client_login["userEmail"],
         "password": "correct-horse-battery-staple",
     })
     token = login_resp.json()["access_token"]
     resp = client.get(
-        f"/projects/users/{test_project['clientId']}", headers={"Authorization": f"Bearer {token}"}
+        f"/projects/users/{test_user['userId']}", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 403
 
@@ -194,7 +192,6 @@ def test_set_final_invoice_rejects_invoice_from_another_project(
         "projectStartDate": "2026-11-14T18:00:00",
         "projectEndDate": "2026-11-14T23:00:00",
         "vendorOnProject": test_user["userId"],
-        "clientId": test_user["userId"],
     }, headers=vendor_auth_headers).json()
     invoice_for_other_project = _create_invoice(
         client, other_project["projectId"], test_user["userId"], vendor_auth_headers
@@ -228,3 +225,41 @@ def test_set_final_invoice_nonexistent_invoice_404(client, test_project, vendor_
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 404
+
+
+def test_project_created_without_clients(client, test_user, vendor_auth_headers):
+    resp = client.post("/projects", json={
+        "projectName": "No Client Yet",
+        "projectStatus": "Proposal",
+        "projectStartDate": "2026-11-14T18:00:00",
+        "projectEndDate": "2026-11-14T23:00:00",
+        "vendorOnProject": test_user["userId"],
+    }, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["clients"] == []
+
+
+def test_linked_client_sees_project_on_every_route(client, test_client_login, test_project, vendor_auth_headers):
+    client.post(
+        f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}", headers=vendor_auth_headers
+    )
+    headers = {"Authorization": f"Bearer {_login(client, test_client_login['userEmail'])}"}
+
+    listed = client.get("/projects", headers=headers).json()
+    by_user = client.get(f"/projects/users/{test_client_login['userId']}", headers=headers).json()
+    assert [p["projectId"] for p in listed] == [test_project["projectId"]]
+    assert [p["projectId"] for p in by_user] == [test_project["projectId"]]
+    assert client.get(f"/projects/{test_project['projectId']}", headers=headers).status_code == 200
+
+
+def test_project_can_have_several_clients(client, test_user, test_client_login, test_project, vendor_auth_headers):
+    resp = client.post(
+        f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}", headers=vendor_auth_headers
+    )
+    assert {c["userId"] for c in resp.json()["clients"]} == {test_user["userId"], test_client_login["userId"]}
+
+
+def test_deleting_project_with_clients(client, test_project, vendor_auth_headers):
+    # user_projects links cascade, so they never block the delete
+    resp = client.delete(f"/projects/{test_project['projectId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 204

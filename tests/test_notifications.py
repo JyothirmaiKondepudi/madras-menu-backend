@@ -5,14 +5,16 @@ def _login(client, email, password="correct-horse-battery-staple"):
 
 
 def _project(client, vendor_id, client_id, headers):
-    return client.post("/projects", json={
+    project = client.post("/projects", json={
         "projectName": "Notifications Test Project",
         "projectStatus": "Proposal",
         "projectStartDate": "2026-11-14T18:00:00",
         "projectEndDate": "2026-11-14T23:00:00",
         "vendorOnProject": vendor_id,
-        "clientId": client_id,
     }, headers=headers).json()
+    if client_id is not None:
+        client.post(f"/projects/{project['projectId']}/users/{client_id}", headers=headers)
+    return project
 
 
 def test_notifications_require_auth(client):

@@ -153,8 +153,12 @@ def test_project(client, test_user, vendor_auth_headers):
         "projectStartDate": "2026-11-01T18:00:00",
         "projectEndDate": "2026-11-01T23:00:00",
         "vendorOnProject": test_user["userId"],
-        "clientId": test_user["userId"],
     }, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    # clients are linked after creation, via user_projects
+    resp = client.post(
+        f"/projects/{resp.json()['projectId']}/users/{test_user['userId']}", headers=vendor_auth_headers
+    )
     assert resp.status_code == 200, resp.text
     return resp.json()
 
