@@ -24,7 +24,7 @@ def create_new_org(new_org, db):
         orgName=new_org.orgName,
         orgVendor=new_org.orgVendor,
         orgEmail=new_org.orgEmail,
-        orgDisabled=new_org.orgDisbaled,
+        orgDisabled=new_org.orgDisabled,
     )
 
     db.add(created_org)

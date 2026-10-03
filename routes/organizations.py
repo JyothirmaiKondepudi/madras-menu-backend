@@ -99,7 +99,7 @@ def update_org_info(
         raise HTTPException(
             status_code=404, detail=f"org with id: {org_id} does not exist"
         )
-    return update_org_info
+    return updated_org_info
 
 
 @router.delete(
