@@ -167,7 +167,8 @@ def test_add_user_to_project_nonexistent_user_404(client, test_project, vendor_a
 def _create_invoice(client, project_id, user_id, headers):
     return client.post("/invoices", json={
         "invoiceStatus": "Generated",
-        "invoiceAmount": 100.0,
+        "totalAmount": 100.0,
+        "depositPercentage": 100,
         "invoiceAssignedTo": user_id,
         "projectAssociatedTo": project_id,
     }, headers=headers).json()

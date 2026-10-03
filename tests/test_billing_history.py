@@ -17,7 +17,8 @@ def _subproject_body(project_id):
 def _invoice_body(project_id, user_id, subproject_id=None, amount=100.0):
     body = {
         "invoiceStatus": "Generated",
-        "invoiceAmount": amount,
+        "totalAmount": amount,
+        "depositPercentage": 100,
         "invoiceAssignedTo": user_id,
         "projectAssociatedTo": project_id,
     }

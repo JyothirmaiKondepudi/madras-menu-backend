@@ -33,7 +33,14 @@ def generate_invoice_pdf(invoice: Invoice, assigned_user: User) -> Path:
         f"Invoice ID: {invoice.invoiceId}",
         f"Project: {invoice.project.projectName}",
         f"Status: {invoice.invoiceStatus}",
-        f"Amount: ${invoice.invoiceAmount:,.2f}",
+    ]
+    if invoice.totalAmount is not None and invoice.depositPercentage is not None:
+        lines += [
+            f"Event total: ${invoice.totalAmount:,.2f}",
+            f"Deposit: {invoice.depositPercentage:g}%",
+        ]
+    lines += [
+        f"Amount due: ${invoice.invoiceAmount:,.2f}",
         "",
         f"Billed to: {assigned_user.fullName}",
         f"Email: {assigned_user.userEmail}",

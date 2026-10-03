@@ -25,7 +25,8 @@ def _create_invoice(client, project_id, user_id, headers, subproject_id, amount=
         "/invoices",
         json={
             "invoiceStatus": "Generated",
-            "invoiceAmount": amount,
+            "totalAmount": amount,
+            "depositPercentage": 100,
             "invoiceAssignedTo": user_id,
             "projectAssociatedTo": project_id,
             "subprojectId": subproject_id,
