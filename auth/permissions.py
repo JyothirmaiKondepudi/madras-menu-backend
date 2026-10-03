@@ -1,19 +1,4 @@
-"""
-The single source of truth for what permissions exist — imported by the
-migration that seeds them into the real database AND by the test suite's
-`engine` fixture (which builds its schema via Base.metadata.create_all(),
-bypassing Alembic entirely, so it needs its own seeding). Kept in one place
-on purpose: hand-maintaining two copies of this list was exactly the kind
-of duplicated-state drift that caused real bugs earlier in this project
-(the hierarchy tree's tracking-file drift, fixed by removing the second
-copy of the truth rather than trying to keep two in sync).
-
-One row per permission actually enforced in the app today — a faithful
-conversion of every existing "userRole == vendor" check into a named
-permission, not new authorization rules. See auth/dependencies.py's
-require_permission()/user_has_permission() and the routes/*.py files
-using them.
-"""
+"""Single source of truth for permissions — used by the seed migration and the test suite's engine fixture."""
 
 PERMISSIONS = [
     ("user:list", "List every user account"),
@@ -35,18 +20,31 @@ PERMISSIONS = [
     ("invoice:create", "Create a new invoice"),
     ("invoice:update", "Edit any invoice"),
     ("invoice:delete", "Delete an invoice"),
+    ("billing:view_all", "View any subproject's billing history/info, not just your own"),
+    ("billing:create", "Record a billing transaction (e.g. a manually-entered payment)"),
     ("tax_category:manage", "Read or write tax categories/rates"),
     ("menu_item:create", "Add a new menu item"),
     ("menu_item:update", "Edit a menu item"),
     ("menu_item:delete", "Delete a menu item"),
     ("hierarchy:manage", "Read or write the dish hierarchy (item_relationships)"),
     ("embedding:manage", "Generate or search menu item embeddings"),
+    ("org:list", "list every org present"),
+    ("org:view_all", "view any org profile"),
+    ("org:create", "create a new org"),
+    ("org:update", "edit org account"),
+    ("org:delete", "delete org account"),
 ]
 
-# role -> permission names. "client" is deliberately absent — their access
-# is entirely identity/resource-scoped (user_projects, invoiceAssignedTo),
-# not permission-table-driven. A future "staff"/"chef" role gets its own
-# entry here, no code change required anywhere else.
+# role -> permission names. "client" is absent — its access is resource-scoped, not permission-based.
+#
+# "org:view_all" is deliberately excluded from vendor's blanket grant — a
+# vendor is meant to see their own organization via identity (User.userOrg),
+# not a blanket "view any org" permission. Granting it to the whole role
+# meant any vendor could view (and, via the same check reused there, update)
+# every OTHER org too — a real cross-tenant leak, caught by testing live
+# rather than assumed away. Reserved for a future platform-operator/sales
+# role once that actually exists — see routes/organizations.py.
+_VENDOR_EXCLUDED_PERMISSIONS = {"org:view_all"}
 ROLE_PERMISSIONS = {
-    "vendor": [name for name, _ in PERMISSIONS],
+    "vendor": [name for name, _ in PERMISSIONS if name not in _VENDOR_EXCLUDED_PERMISSIONS],
 }

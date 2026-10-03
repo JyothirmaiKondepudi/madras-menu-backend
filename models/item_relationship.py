@@ -17,8 +17,12 @@ class ItemRelationship(Base):
     )
 
     id = Column("id", String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    fromItemId = Column("from_item_id", String, ForeignKey('menu_items.id'), nullable=False)
-    toItemId = Column("to_item_id", String, ForeignKey('menu_items.id'), nullable=False)
+    fromItemId = Column(
+        "from_item_id", String, ForeignKey('menu_items.id', onupdate="CASCADE", ondelete="RESTRICT"), nullable=False
+    )
+    toItemId = Column(
+        "to_item_id", String, ForeignKey('menu_items.id', onupdate="CASCADE", ondelete="RESTRICT"), nullable=False
+    )
     relationshipType = Column("relationship_type", String, nullable=False)
     relationshipMetadata = Column("metadata", JSONB)
     createdAt = Column("created_at", DateTime, default=datetime.now, server_default=func.now(), nullable=False)

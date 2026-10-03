@@ -1,7 +1,8 @@
 def _invoice_body(project_id, user_id, **overrides):
     body = {
         "invoiceStatus": "Generated",
-        "invoiceAmount": 100.0,
+        "totalAmount": 100.0,
+        "depositPercentage": 100,
         "invoiceAssignedTo": user_id,
         "projectAssociatedTo": project_id,
     }
@@ -12,7 +13,7 @@ def _invoice_body(project_id, user_id, **overrides):
 def test_create_invoice(client, test_user, test_project, vendor_auth_headers):
     resp = client.post(
         "/invoices",
-        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=2500.0),
+        json=_invoice_body(test_project["projectId"], test_user["userId"], totalAmount=2500.0),
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200, resp.text
@@ -125,20 +126,18 @@ def test_update_invoice(client, test_user, test_project, vendor_auth_headers):
 def test_update_invoice_regenerates_pdf(client, test_user, test_project, vendor_auth_headers):
     created = client.post(
         "/invoices",
-        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=100.0),
+        json=_invoice_body(test_project["projectId"], test_user["userId"], totalAmount=100.0),
         headers=vendor_auth_headers,
     ).json()
 
     original_pdf = client.get(f"/invoices/{created['invoiceId']}/pdf", headers=vendor_auth_headers).content
 
     client.patch(
-        f"/invoices/{created['invoiceId']}", json={"invoiceAmount": 999.0}, headers=vendor_auth_headers
+        f"/invoices/{created['invoiceId']}", json={"totalAmount": 999.0}, headers=vendor_auth_headers
     )
 
     updated_pdf = client.get(f"/invoices/{created['invoiceId']}/pdf", headers=vendor_auth_headers).content
-    # reportlab compresses its content stream, so the literal "999.00" isn't
-    # visible in the raw bytes — checking the file actually changed is the
-    # reliable signal that update_invoice_by_invoice_id really regenerated it.
+    # reportlab compresses content, so just check the file actually changed
     assert updated_pdf != original_pdf
 
 
@@ -155,7 +154,7 @@ def test_delete_invoice(client, test_user, test_project, vendor_auth_headers):
 def test_invoice_pdf_generated_and_downloadable(client, test_user, test_project, vendor_auth_headers):
     created = client.post(
         "/invoices",
-        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=250.0),
+        json=_invoice_body(test_project["projectId"], test_user["userId"], totalAmount=250.0),
         headers=vendor_auth_headers,
     ).json()
 
@@ -168,7 +167,7 @@ def test_invoice_pdf_generated_and_downloadable(client, test_user, test_project,
 def test_invoice_pdf_requires_auth(client, test_user, test_project, vendor_auth_headers):
     created = client.post(
         "/invoices",
-        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=250.0),
+        json=_invoice_body(test_project["projectId"], test_user["userId"], totalAmount=250.0),
         headers=vendor_auth_headers,
     ).json()
 
@@ -180,7 +179,7 @@ def test_invoice_pdf_forbidden_for_another_user(
 ):
     created = client.post(
         "/invoices",
-        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceAmount=250.0),
+        json=_invoice_body(test_project["projectId"], test_user["userId"], totalAmount=250.0),
         headers=vendor_auth_headers,
     ).json()
     login_resp = client.post("/auth/login", json={
@@ -194,14 +193,16 @@ def test_invoice_pdf_forbidden_for_another_user(
 
 
 def _project_with_vendor_and_client(client, vendor_id, client_id, headers):
-    return client.post("/projects", json={
+    project = client.post("/projects", json={
         "projectName": "Notification Test Project",
         "projectStatus": "Proposal",
         "projectStartDate": "2026-11-14T18:00:00",
         "projectEndDate": "2026-11-14T23:00:00",
         "vendorOnProject": vendor_id,
-        "clientId": client_id,
     }, headers=headers).json()
+    if client_id is not None:
+        client.post(f"/projects/{project['projectId']}/users/{client_id}", headers=headers)
+    return project
 
 
 def _login(client, email, password="correct-horse-battery-staple"):
@@ -229,9 +230,7 @@ def test_client_accepting_invoice_notifies_both_client_and_vendor(
     assert resp.status_code == 200, resp.text
     assert resp.json()["invoiceStatus"] == "Accepted"
 
-    # both the client (who acted) and the project's vendor should have a
-    # real unread notification about it now — see tests/test_notifications.py
-    # for the notifications module itself
+    # both the acting client and the project's vendor should get a notification
     client_unread = client.get(
         "/notifications/unread", headers={"Authorization": f"Bearer {client_token}"}
     ).json()
@@ -290,3 +289,49 @@ def test_accept_invoice_requires_auth(client, test_user, test_project, vendor_au
     assert client.patch(f"/invoices/{invoice['invoiceId']}/accept").status_code == 401
 
 
+
+
+def test_invoice_amount_is_deposit_percentage_of_total(client, test_user, test_project, vendor_auth_headers):
+    resp = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], totalAmount=10000.0, depositPercentage=25),
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["invoiceAmount"] == 2500.0
+    assert body["totalAmount"] == 10000.0
+    assert body["depositPercentage"] == 25
+
+
+def test_invoice_amount_rounds_to_the_cent(client, test_user, test_project, vendor_auth_headers):
+    resp = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], totalAmount=1000.0, depositPercentage=33.33),
+        headers=vendor_auth_headers,
+    )
+    assert resp.json()["invoiceAmount"] == 333.30
+
+
+def test_deposit_percentage_out_of_range_rejected(client, test_user, test_project, vendor_auth_headers):
+    for pct in (0, -5, 150):
+        resp = client.post(
+            "/invoices",
+            json=_invoice_body(test_project["projectId"], test_user["userId"], depositPercentage=pct),
+            headers=vendor_auth_headers,
+        )
+        assert resp.status_code == 422, pct
+
+
+def test_updating_deposit_percentage_recomputes_amount(client, test_user, test_project, vendor_auth_headers):
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], totalAmount=8000.0, depositPercentage=25),
+        headers=vendor_auth_headers,
+    ).json()
+
+    resp = client.patch(
+        f"/invoices/{created['invoiceId']}", json={"depositPercentage": 50}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoiceAmount"] == 4000.0

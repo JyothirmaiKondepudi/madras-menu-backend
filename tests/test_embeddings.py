@@ -1,13 +1,6 @@
-"""
-The Ollama-unavailable tests use a mock, deliberately — not "just don't run
-Ollama locally." A test suite shouldn't pass or fail based on whether the
-person/CI running it happens to have Ollama up; mocking generate_embedding
-to raise makes the failure path deterministic regardless of environment.
-
-The real round-trip tests actually call Ollama for real (this machine has
-nomic-embed-text pulled and running) and are skipped, not failed, if it's
-unreachable — e.g. in CI, which won't have a local Ollama daemon.
-"""
+"""Ollama-unavailable tests mock generate_embedding so the failure path is
+deterministic regardless of environment. The real round-trip test calls Ollama
+for real and is skipped (not failed) if it's unreachable, e.g. in CI."""
 
 import socket
 from unittest.mock import patch
@@ -59,9 +52,8 @@ def test_search_ollama_connection_error_returns_503(client, vendor_auth_headers)
 
 @pytest.mark.skipif(not OLLAMA_AVAILABLE, reason="Ollama isn't running locally")
 def test_embed_and_search_real_round_trip(client, test_menu_item, vendor_auth_headers):
-    """The actual thing this whole feature is for: generate a real
-    embedding via Ollama, store it, then find it again by semantic search
-    on its own name."""
+    """Generate a real embedding via Ollama, store it, then find it again by
+    semantic search on its own name."""
     embed_resp = client.post(f"/menu-items/{test_menu_item['id']}/embedding", headers=vendor_auth_headers)
     assert embed_resp.status_code == 200, embed_resp.text
     assert embed_resp.json()["itemId"] == test_menu_item["id"]

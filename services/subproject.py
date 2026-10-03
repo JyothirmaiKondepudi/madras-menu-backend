@@ -1,24 +1,31 @@
 from models import Project, Subproject
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
+from services.account_activity import record_activity
 
 # shared by every query that returns a SubprojectOut, since it now nests
 # project -> client / vendor
 _WITH_PROJECT_AND_USERS = joinedload(Subproject.project).options(
-    joinedload(Project.client),
+    selectinload(Project.users),
     joinedload(Project.vendor),
 )
 
 
-def get_all_subprojects(db: Session):
+def get_all_subprojects(organization_id, db: Session):
+    """"All subprojects" now means all subprojects in the caller's own
+    organization — scoped by joining through Subproject's own project,
+    same reasoning as get_all_invoices."""
     return db.execute(
-        select(Subproject).options(_WITH_PROJECT_AND_USERS)
+        select(Subproject)
+        .join(Project, Subproject.projectAssociatedTo == Project.projectId)
+        .where(Project.organizationId == organization_id)
+        .options(_WITH_PROJECT_AND_USERS)
     ).scalars().all()
 
 def get_subproject_by_subproject_id(subproject_id, db: Session):
     return db.get(Subproject, subproject_id, options=[_WITH_PROJECT_AND_USERS])
 
-def add_new_subproject(new_subproject, db: Session):
+def add_new_subproject(new_subproject, db: Session, actor_id=None):
     created_subproject = Subproject(
         subprojectName=new_subproject.subprojectName,
         projectAssociatedTo=new_subproject.projectAssociatedTo,
@@ -35,6 +42,14 @@ def add_new_subproject(new_subproject, db: Session):
     db.add(created_subproject)
     db.commit()
     db.refresh(created_subproject)
+    record_activity(
+        db,
+        activity_type="subproject_created",
+        description=f"Subproject \"{created_subproject.subprojectName}\" was created",
+        project_id=created_subproject.projectAssociatedTo,
+        subproject_id=created_subproject.subprojectId,
+        actor_id=actor_id,
+    )
     return created_subproject
 
 def update_subproject_by_subproject_id(subproject_id, updates, db: Session):

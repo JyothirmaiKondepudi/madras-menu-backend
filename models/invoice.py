@@ -6,21 +6,53 @@ from database import Base
 
 
 class Invoice(Base):
-    __tablename__ = 'invoices'
+    __tablename__ = "invoices"
 
-    invoiceId = Column("invoice_id", UUID(as_uuid=True), nullable=False, primary_key=True, default=uuid.uuid4)
-    # 'Accepted' is distinct from 'Paid' — the client agreeing to an invoice
-    # and payment actually being received are different events; conflating
-    # them would lose information.
-    invoiceStatus = Column("invoice_status", Enum('Generated', 'Assigned', 'Pending', 'Accepted', 'Paid', 'Declined', name='invoice_status_enum'), nullable=False)
+    invoiceId = Column(
+        "invoice_id",
+        UUID(as_uuid=True),
+        nullable=False,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    invoiceStatus = Column(
+        "invoice_status",
+        Enum(
+            "Generated",
+            "Assigned",
+            "Pending",
+            "Accepted",
+            "Paid",
+            "Declined",
+            name="invoice_status_enum",
+        ),
+        nullable=False,
+    )
     invoiceAmount = Column("invoice_amount", Float, nullable=False)
-    invoiceAssignedTo = Column("invoice_assigned_to", UUID(as_uuid=True), ForeignKey('user_data.user_id'), nullable=False)
-    # A project can have more than one invoice over its lifecycle (deposit,
-    # balance, add-ons) — same shape as Subproject.projectAssociatedTo, not a
-    # one-to-one. Replaces the old, never-populated Project.project_invoice.
-    projectAssociatedTo = Column("project_associated_to", UUID(as_uuid=True), ForeignKey('projects.project_id'), nullable=False)
-
-    # foreign_keys explicit now that Project.finalInvoiceId creates a second,
-    # opposite-direction FK path between these two tables — without this,
-    # SQLAlchemy can't tell which one defines "an invoice's own project."
-    project = relationship('Project', foreign_keys=[projectAssociatedTo])
+    invoiceAssignedTo = Column(
+        "invoice_assigned_to",
+        UUID(as_uuid=True),
+        ForeignKey("user_data.user_id"),
+        nullable=False,
+    )
+    # A project can have many invoices (deposit, balance, add-ons).
+    projectAssociatedTo = Column(
+        "project_associated_to",
+        UUID(as_uuid=True),
+        ForeignKey("projects.project_id"),
+        nullable=False,
+    )
+    # Null for project-level invoices (e.g. a deposit).
+    subprojectId = Column(
+        "subproject_id",
+        UUID(as_uuid=True),
+        ForeignKey("subprojects.subproject_id"),
+        nullable=True,
+    )
+    # invoiceAmount is computed from these two (see services/invoices.py).
+    # Nullable: invoices created before deposits existed have neither.
+    totalAmount = Column("total_amount", Float)
+    depositPercentage = Column("deposit_percentage", Float)  # 25 = 25%
+    # Explicit foreign_keys: Project.finalInvoiceId adds a second FK path.
+    project = relationship("Project", foreign_keys=[projectAssociatedTo])
+    subproject = relationship("Subproject")

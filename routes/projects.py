@@ -13,10 +13,10 @@ router = APIRouter()
 @router.get("/projects",response_model=list[ProjectOut])
 def get_projects(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     # vendor (or any future role granted project:view_all) sees every
-    # project; anyone else only sees projects they're linked to via
-    # user_projects (current_user.projects).
+    # project in their OWN organization; anyone else only sees projects
+    # they're linked to via user_projects (current_user.projects).
     if user_has_permission(current_user, "project:view_all", db):
-        return get_all_projects(db)
+        return get_all_projects(current_user.userOrg, db)
     return current_user.projects
 
 @router.post(
@@ -24,8 +24,10 @@ def get_projects(db: Session = Depends(get_db), current_user: User = Depends(get
     response_model=ProjectOut,
     dependencies=[Depends(require_permission("project:manage_users"))],
 )
-def add_project_user(project_id: UUID, user_id: UUID, db: Session = Depends(get_db)):
-    project = add_user_to_project(project_id, user_id, db)
+def add_project_user(
+    project_id: UUID, user_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    project = add_user_to_project(project_id, user_id, db, actor_id=current_user.userId)
     if project is None:
         raise HTTPException(status_code=404, detail="project or user not found")
     return project
@@ -69,8 +71,12 @@ def getProjectById(
      return project
 
 @router.post("/projects", response_model=ProjectOut, dependencies=[Depends(require_permission("project:create"))])
-def add_project(new_project: ProjectCreate, db: Session = Depends(get_db)):
-     created_project = add_new_Project(new_project, db)
+def add_project(
+    new_project: ProjectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+     created_project = add_new_Project(
+         new_project, db, organization_id=current_user.userOrg, actor_id=current_user.userId
+     )
      if created_project is None:
          raise HTTPException(status_code=409, detail=f"failure creating a new project")
      return created_project

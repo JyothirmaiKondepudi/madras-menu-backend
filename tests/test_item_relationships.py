@@ -111,6 +111,5 @@ def test_delete_node_reparents_children(client, vendor_auth_headers):
     edge = client.get(f"/item-relationships/{child['id']}", headers=vendor_auth_headers)
     assert edge.json()["toItemId"] == grandparent["id"]
 
-    # the deleted node's own menu_items row should still exist (delete_node
-    # only removes it from the hierarchy, never the dish itself)
+    # delete_node only removes it from the hierarchy, not the dish itself
     assert client.get(f"/menu-items/{parent['id']}", headers=vendor_auth_headers).status_code == 200

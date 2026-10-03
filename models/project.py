@@ -7,46 +7,77 @@ from database import Base
 
 
 class Project(Base):
-    __tablename__ = 'projects'
+    __tablename__ = "projects"
 
     projectName = Column("project_name", String, nullable=False)
-    projectId = Column("project_id", UUID(as_uuid=True), nullable=False, primary_key=True, default=uuid.uuid4)
-    projectStatus = Column("project_status", Enum('Proposal', 'Accepted', 'Rejected', 'Suggested Changes', 'Planning', 'Complete', name='project_status_enum'))
+    projectId = Column(
+        "project_id",
+        UUID(as_uuid=True),
+        nullable=False,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    projectStatus = Column(
+        "project_status",
+        Enum(
+            "Proposal",
+            "Accepted",
+            "Rejected",
+            "Suggested Changes",
+            "Planning",
+            "Complete",
+            name="project_status_enum",
+        ),
+    )
     projectStartDate = Column("project_start_date", DateTime, default=datetime.now)
     projectEndDate = Column("project_end_date", DateTime, default=datetime.now)
-    vendorOnProject = Column("vendor_on_project", UUID(as_uuid=True), ForeignKey('user_data.user_id'))
-    clientId = Column("client_id", UUID(as_uuid=True), ForeignKey('user_data.user_id'), nullable=False)
-    # A project can have several invoices over time (revisions, drafts) —
-    # this points at the one the client actually went ahead with, so the
-    # vendor has a single answer to "which invoice is the real one for this
-    # project." Null until explicitly set (see PATCH
-    # /projects/{id}/final-invoice/{invoice_id}) — never inferred from
-    # invoiceStatus or "most recent," since neither reliably means "the
-    # client accepted this one."
-    # use_alter=True + an explicit name: invoices.project_associated_to
-    # already points at projects, so this column creates a genuine cycle
-    # between the two tables. Without use_alter, Base.metadata.create_all()
-    # (what the test suite uses to build a fresh schema) silently drops one
-    # of the two FK constraints instead of erroring — caught for real when
-    # test_projects.py started raising IntegrityError on insert. use_alter
-    # defers this one constraint to a separate ALTER TABLE after both
-    # tables exist, which resolves the cycle cleanly.
+    vendorOnProject = Column(
+        "vendor_on_project", UUID(as_uuid=True), ForeignKey("user_data.user_id")
+    )
+    # The tenant this project belongs to — nullable only because existing
+    # rows predate Organization; set automatically from the creating
+    # vendor's own org, never client-supplied. Invoice/Subproject scope by
+    # joining through here rather than each carrying their own copy, so
+    # there's exactly one place a project's org can drift from.
+    organizationId = Column(
+        "organization_id",
+        UUID(as_uuid=True),
+        ForeignKey("organizations.org_id"),
+        nullable=True,
+    )
+    # The invoice the client actually went ahead with; null until set explicitly.
+    # use_alter=True: invoices already FKs to projects, so this avoids a circular FK.
     finalInvoiceId = Column(
         "final_invoice_id",
         UUID(as_uuid=True),
-        ForeignKey('invoices.invoice_id', use_alter=True, name='fk_projects_final_invoice_id'),
+        ForeignKey(
+            "invoices.invoice_id", use_alter=True, name="fk_projects_final_invoice_id"
+        ),
         nullable=True,
     )
 
-    client = relationship('User', foreign_keys=[clientId])
-    vendor = relationship('User', foreign_keys=[vendorOnProject])
-    users = relationship('User', secondary='user_projects', back_populates='projects')
-    finalInvoice = relationship('Invoice', foreign_keys=[finalInvoiceId])
+    vendor = relationship("User", foreign_keys=[vendorOnProject])
+    # A project's clients. user_projects is the only record of who they are
+    # and the only thing client access checks read.
+    users = relationship("User", secondary="user_projects", back_populates="projects")
+    finalInvoice = relationship("Invoice", foreign_keys=[finalInvoiceId])
+    organization = relationship("Organization", foreign_keys=[organizationId])
 
 
 user_projects = Table(
-    'user_projects',
+    "user_projects",
     Base.metadata,
-    Column('user_id', UUID(as_uuid=True), ForeignKey('user_data.user_id'), primary_key=True),
-    Column('project_id', UUID(as_uuid=True), ForeignKey('projects.project_id'), primary_key=True)
+    # Links go with either side, so deleting a project or user never fails on them
+    Column(
+        "user_id",
+        UUID(as_uuid=True),
+        ForeignKey("user_data.user_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "project_id",
+        UUID(as_uuid=True),
+        ForeignKey("projects.project_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
