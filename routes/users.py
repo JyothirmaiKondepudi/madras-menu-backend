@@ -32,7 +32,7 @@ def add_user(
      # current_user is used here (unlike the unused-vendor pattern elsewhere)
      # — it's who gets notified as "the one who sent this invite," so it
      # stays a real function parameter, not just a dependencies=[] gate.
-     created_user = add_new_user(new_user, db, created_by=current_user.userId)
+     created_user = add_new_user(new_user, db, created_by=current_user)
      if created_user is None:
          raise HTTPException(status_code=409, detail=f"user with email {new_user.email} already exists")
      return created_user

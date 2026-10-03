@@ -20,7 +20,10 @@ class User(Base):
     passwordHash = Column("password_hash", String, nullable=True)
     # Who created this row; null for the bootstrap vendor inserted directly into the DB
     createdBy = Column(
-        "created_by", UUID(as_uuid=True), ForeignKey("user_data.user_id"), nullable=True
+        "created_by",
+        UUID(as_uuid=True),
+        ForeignKey("user_data.user_id"),
+        nullable=True,
     )
     userCreatedAt = Column("created_at", DateTime, default=datetime.now)
     updatedAt = Column(
@@ -33,10 +36,15 @@ class User(Base):
     # caught for real when the full test suite's teardown raised
     # CircularDependencyError. use_alter defers this one constraint to a
     # separate ALTER TABLE after both tables exist, which resolves the cycle.
+    # Every user (vendor or client) belongs to exactly one org; new users
+    # inherit their creator's. The first org + vendor come from scripts/seed_dev.py.
     userOrg = Column(
         "user_org",
         UUID(as_uuid=True),
-        ForeignKey("organizations.org_id", use_alter=True, name="fk_user_data_user_org"),
+        ForeignKey(
+            "organizations.org_id", use_alter=True, name="fk_user_data_user_org"
+        ),
+        nullable=False,
     )
 
     projects = relationship(
