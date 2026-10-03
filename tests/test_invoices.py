@@ -193,14 +193,16 @@ def test_invoice_pdf_forbidden_for_another_user(
 
 
 def _project_with_vendor_and_client(client, vendor_id, client_id, headers):
-    return client.post("/projects", json={
+    project = client.post("/projects", json={
         "projectName": "Notification Test Project",
         "projectStatus": "Proposal",
         "projectStartDate": "2026-11-14T18:00:00",
         "projectEndDate": "2026-11-14T23:00:00",
         "vendorOnProject": vendor_id,
-        "clientId": client_id,
     }, headers=headers).json()
+    if client_id is not None:
+        client.post(f"/projects/{project['projectId']}/users/{client_id}", headers=headers)
+    return project
 
 
 def _login(client, email, password="correct-horse-battery-staple"):

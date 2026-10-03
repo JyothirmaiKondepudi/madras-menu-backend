@@ -36,7 +36,7 @@ def test_create_subproject_requires_vendor(client, test_project, test_client_log
     assert resp.status_code == 403
 
 
-def test_get_subproject_includes_nested_project_and_client(client, test_project, vendor_auth_headers):
+def test_get_subproject_includes_nested_project_and_client(client, test_user, test_project, vendor_auth_headers):
     created = client.post(
         "/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers
     ).json()
@@ -45,7 +45,7 @@ def test_get_subproject_includes_nested_project_and_client(client, test_project,
     assert resp.status_code == 200
     body = resp.json()
     assert body["project"]["projectId"] == test_project["projectId"]
-    assert body["project"]["client"]["userId"] == test_project["clientId"]
+    assert [c["userId"] for c in body["project"]["clients"]] == [test_user["userId"]]
 
 
 def test_get_subprojects_by_project_id(client, test_project, vendor_auth_headers):

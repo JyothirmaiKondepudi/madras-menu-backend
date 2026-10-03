@@ -2,7 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from models import Invoice, Project, User
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from schemas.invoice import InvoiceUpdate
 from services.invoice_pdf import generate_invoice_pdf
 from services.notifications import create_notification
@@ -11,7 +11,7 @@ from services.account_activity import record_activity
 # InvoiceOut nests project -> client/vendor, same reasoning as
 # services/subproject.py's _WITH_PROJECT_AND_USERS.
 _WITH_PROJECT_AND_USERS = joinedload(Invoice.project).options(
-    joinedload(Project.client),
+    selectinload(Project.users),
     joinedload(Project.vendor),
 )
 
