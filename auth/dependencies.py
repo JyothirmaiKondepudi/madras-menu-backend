@@ -5,7 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Permission, RolePermission
+from uuid import UUID
+from models import User, Permission, RolePermission, Project
 from auth.security import decode_access_token
 
 # HTTPBearer, not OAuth2PasswordBearer — login uses a JSON body, not form-encoded fields
@@ -70,3 +71,14 @@ def require_permission(permission_name: str):
 def user_project_ids(user: User) -> set:
     """Project ids this user is linked to via user_projects."""
     return {p.projectId for p in user.projects}
+
+
+def load_project_in_org(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Project:
+    project = db.get(Project, project_id)
+    if project is None or project.organizationId != current_user.userOrg:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
