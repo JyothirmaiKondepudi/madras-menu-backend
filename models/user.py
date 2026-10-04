@@ -36,6 +36,7 @@ class User(Base):
         UUID(as_uuid=True),
         ForeignKey("organizations.org_id", name="fk_user_data_user_org"),
         nullable=False,
+        index=True,
     )
 
     projects = relationship(

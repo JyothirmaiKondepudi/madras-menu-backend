@@ -34,6 +34,7 @@ class Invoice(Base):
         UUID(as_uuid=True),
         ForeignKey("user_data.user_id"),
         nullable=False,
+        index=True,
     )
     # A project can have many invoices (deposit, balance, add-ons).
     projectAssociatedTo = Column(
@@ -41,6 +42,7 @@ class Invoice(Base):
         UUID(as_uuid=True),
         ForeignKey("projects.project_id"),
         nullable=False,
+        index=True,
     )
     # Null for project-level invoices (e.g. a deposit).
     subprojectId = Column(
@@ -48,6 +50,7 @@ class Invoice(Base):
         UUID(as_uuid=True),
         ForeignKey("subprojects.subproject_id"),
         nullable=True,
+        index=True,
     )
     # invoiceAmount is computed from these two (see services/invoices.py).
     # Nullable: invoices created before deposits existed have neither.
