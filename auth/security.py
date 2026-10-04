@@ -48,5 +48,4 @@ def decode_access_token(token: str) -> UUID:
     any failure — auth/dependencies.py is the one place that catches it and
     turns it into a 401."""
     payload = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
-    print(f"paylaod: {payload}")
     return UUID(payload["sub"])

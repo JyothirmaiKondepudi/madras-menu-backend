@@ -36,7 +36,6 @@ def add_new_Project(newProject, db: Session, organization_id=None, actor_id=None
     )
     db.add(created_Project)
     db.commit()
-    print(f"commited to database succesfully")
     db.refresh(created_Project)
     record_activity(
         db,

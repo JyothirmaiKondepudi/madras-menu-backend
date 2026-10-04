@@ -125,6 +125,7 @@ def add_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    load_user_in_org(new_project.vendorOnProject, current_user, db)
     created_project = add_new_Project(
         new_project,
         db,
@@ -145,8 +146,11 @@ def update_project(
     project_id: UUID,
     updates: ProjectUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     project: Project = Depends(load_project_in_org),
 ):
+    if updates.vendorOnProject is not None:
+        load_user_in_org(updates.vendorOnProject, current_user, db)
     updated_project = update_project_by_project_id(project_id, updates, db)
     if updated_project is None:
         raise HTTPException(status_code=404, detail="project not found")

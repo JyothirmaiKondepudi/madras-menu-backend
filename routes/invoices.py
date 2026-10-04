@@ -3,7 +3,7 @@ from fastapi.responses import FileResponse
 from services.invoices import *
 from services.invoice_pdf import invoice_pdf_path
 from fastapi import APIRouter, Depends, HTTPException
-from models import Invoice, User
+from models import Invoice, User, Project, Subproject
 from schemas.invoice import InvoiceOut, InvoiceCreate, InvoiceUpdate
 from database import get_db
 from auth.dependencies import (
@@ -11,6 +11,8 @@ from auth.dependencies import (
     require_permission,
     user_has_permission,
     user_project_ids,
+    load_invoice_in_org,
+    load_user_in_org,
 )
 from uuid import UUID
 
@@ -46,8 +48,8 @@ def getinvoiceById(
     invoice_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    invoice: Invoice = Depends(load_invoice_in_org),
 ):
-    invoice = get_invoice_by_id(invoice_id, db)
     if invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
     if (
@@ -70,6 +72,16 @@ def add_invoice(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if new_invoice.invoiceAssignedTo is not None:
+        load_user_in_org(new_invoice.invoiceAssignedTo, current_user, db)
+        project = db.get(Project, new_invoice.projectAssociatedTo)
+    if project is None or project.organizationId != current_user.userOrg:
+        raise HTTPException(status_code=404, detail="project not found")
+
+    if new_invoice.subprojectId is not None:
+        subproject = db.get(Subproject, new_invoice.subprojectId)
+        if subproject is None or subproject.projectAssociatedTo != project.projectId:
+            raise HTTPException(status_code=404, detail="subproject not found")
     created_invoice = add_new_invoice(new_invoice, db, actor_id=current_user.userId)
     if created_invoice is None:
         raise HTTPException(status_code=409, detail=f"failure creating a new invoice")
@@ -82,8 +94,23 @@ def add_invoice(
     dependencies=[Depends(require_permission("invoice:update"))],
 )
 def update_invoice(
-    invoice_id: UUID, updates: InvoiceUpdate, db: Session = Depends(get_db)
+    invoice_id: UUID,
+    updates: InvoiceUpdate,
+    db: Session = Depends(get_db),
+    invoice: Invoice = Depends(load_invoice_in_org),
+    current_user: User = Depends(get_current_user),
 ):
+    if updates.invoiceAssignedTo is not None:
+        load_user_in_org(updates.invoiceAssignedTo, current_user, db)
+
+    if updates.subprojectId is not None:
+        subproject = db.get(Subproject, updates.subprojectId)
+        if (
+            subproject is None
+            or subproject.projectAssociatedTo != invoice.projectAssociatedTo
+        ):
+            raise HTTPException(status_code=404, detail="subproject not found")
+    load_invoice_in_org(invoice_id, current_user, db)
     try:
         updated_invoice = update_invoice_by_invoice_id(invoice_id, updates, db)
     except ValueError as exc:
@@ -98,7 +125,11 @@ def update_invoice(
     status_code=204,
     dependencies=[Depends(require_permission("invoice:delete"))],
 )
-def delete_invoice(invoice_id: UUID, db: Session = Depends(get_db)):
+def delete_invoice(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    invoice: Invoice = Depends(load_invoice_in_org),
+):
     deleted_invoice = delete_invoice_by_invoice_id(invoice_id, db)
     if deleted_invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
@@ -109,6 +140,7 @@ def accept_invoice(
     invoice_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    invoice: Invoice = Depends(load_invoice_in_org),
 ):
     invoice = get_invoice_by_id(invoice_id, db)
     if invoice is None:
@@ -128,6 +160,7 @@ def reject_invoice(
     invoice_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    invoice: Invoice = Depends(load_invoice_in_org),
 ):
     invoice = get_invoice_by_id(invoice_id, db)
     if invoice is None:
@@ -147,6 +180,7 @@ def get_invoice_pdf(
     invoice_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    invoice: Invoice = Depends(load_invoice_in_org),
 ):
     invoice = get_invoice_by_id(invoice_id, db)
     if invoice is None:

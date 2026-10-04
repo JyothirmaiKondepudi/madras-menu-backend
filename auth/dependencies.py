@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from uuid import UUID
-from models import User, Permission, RolePermission, Project
+from models import User, Permission, RolePermission, Project, Subproject, Invoice
 from auth.security import decode_access_token
 
 # HTTPBearer, not OAuth2PasswordBearer — login uses a JSON body, not form-encoded fields
@@ -93,3 +93,28 @@ def load_user_in_org(
     if user is None or user.userOrg != current_user.userOrg:
         raise HTTPException(status_code=404, detail="user not found")
     return user
+
+
+def load_subproject_in_org(
+    subproject_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Subproject:
+    sub_project = db.get(Subproject, subproject_id)
+    if (
+        sub_project is None
+        or sub_project.project.organizationId != current_user.userOrg
+    ):
+        raise HTTPException(status_code=404, detail="sub project not found")
+    return sub_project
+
+
+def load_invoice_in_org(
+    invoice_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Invoice:
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None or invoice.project.organizationId != current_user.userOrg:
+        raise HTTPException(status_code=404, detail="invoice not found")
+    return invoice
