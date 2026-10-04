@@ -10,6 +10,7 @@ from auth.dependencies import (
     require_permission,
     user_has_permission,
     load_subproject_in_org,
+    load_project_in_org,
 )
 from uuid import UUID
 
@@ -30,6 +31,7 @@ def getSubprojectByProjectId(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    project: Project = Depends(load_project_in_org),
 ):
     if not user_has_permission(
         current_user, "subproject:view_all", db

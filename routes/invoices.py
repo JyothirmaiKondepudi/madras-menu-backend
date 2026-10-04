@@ -12,6 +12,7 @@ from auth.dependencies import (
     user_has_permission,
     user_project_ids,
     load_invoice_in_org,
+    load_project_in_org,
     load_user_in_org,
 )
 from uuid import UUID
@@ -33,6 +34,7 @@ def getInvoicesByProjectId(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    project: Project = Depends(load_project_in_org),
 ):
     if not user_has_permission(
         current_user, "invoice:view_all", db
