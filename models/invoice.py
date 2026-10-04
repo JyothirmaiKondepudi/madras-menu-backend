@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, Enum, ForeignKey
+from sqlalchemy import Column, String, Enum, ForeignKey, Numeric
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -28,7 +28,7 @@ class Invoice(Base):
         ),
         nullable=False,
     )
-    invoiceAmount = Column("invoice_amount", Float, nullable=False)
+    invoiceAmount = Column("invoice_amount", Numeric(12, 2), nullable=False)
     invoiceAssignedTo = Column(
         "invoice_assigned_to",
         UUID(as_uuid=True),
@@ -54,8 +54,8 @@ class Invoice(Base):
     )
     # invoiceAmount is computed from these two (see services/invoices.py).
     # Nullable: invoices created before deposits existed have neither.
-    totalAmount = Column("total_amount", Float)
-    depositPercentage = Column("deposit_percentage", Float)  # 25 = 25%
+    totalAmount = Column("total_amount", Numeric(12, 2))
+    depositPercentage = Column("deposit_percentage", Numeric(5, 2))  # 25 = 25%
     # Explicit foreign_keys: Project.finalInvoiceId adds a second FK path.
     project = relationship("Project", foreign_keys=[projectAssociatedTo])
     subproject = relationship("Subproject")

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Float, Integer, Enum, ForeignKey, ARRAY
+from sqlalchemy import Column, String, DateTime, Integer, Enum, ForeignKey, ARRAY, Numeric
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 import uuid
@@ -20,7 +20,8 @@ class BillingHistory(Base):
     )
     # Plain string, not an enum, so new Stripe event types don't need a migration.
     eventType = Column("event_type", String, nullable=False)
-    amount = Column("amount", Integer, nullable=False)
+    # dollars, same unit as invoices (was integer cents)
+    amount = Column("amount", Numeric(12, 2), nullable=False)
     occurredAt = Column("occurred_at", DateTime, default=datetime.now)
     source = Column(
         "source", Enum("Manual", "Stripe", name="source_enum"), nullable=False

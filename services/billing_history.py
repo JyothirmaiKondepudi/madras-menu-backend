@@ -74,19 +74,16 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
     time, rather than incrementally adjusted, so it can never drift out of
     sync with the log it's summarizing.
 
-    billing_history.amount is cents (Integer); Invoice.invoiceAmount is
-    dollars (Float) — an existing unit mismatch in this schema, not
-    introduced here. Converting cents -> dollars at this one boundary
-    keeps billing_info in the same dollar-float units Invoice already uses,
-    rather than spreading the conversion across every caller.
+    Every amount involved is Numeric dollars, so the sums are exact and need
+    no unit conversion.
     """
     total_invoiced = db.execute(
-        select(func.coalesce(func.sum(Invoice.invoiceAmount), 0.0)).where(
+        select(func.coalesce(func.sum(Invoice.invoiceAmount), 0)).where(
             Invoice.subprojectId == subproject_id
         )
     ).scalar_one()
 
-    total_paid_cents = db.execute(
+    total_paid = db.execute(
         select(func.coalesce(func.sum(BillingHistory.amount), 0))
         .join(Invoice, BillingHistory.invoiceId == Invoice.invoiceId)
         .where(
@@ -94,7 +91,7 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
             BillingHistory.eventType == "Payment_Succeeded",
         )
     ).scalar_one()
-    total_refunded_cents = db.execute(
+    total_refunded = db.execute(
         select(func.coalesce(func.sum(BillingHistory.amount), 0))
         .join(Invoice, BillingHistory.invoiceId == Invoice.invoiceId)
         .where(
@@ -103,8 +100,6 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
         )
     ).scalar_one()
 
-    total_paid = total_paid_cents / 100
-    total_refunded = total_refunded_cents / 100
     balance_due = total_invoiced - total_paid + total_refunded
 
     if balance_due <= 0:

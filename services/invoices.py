@@ -65,11 +65,11 @@ def get_invoices_by_project_id(project_id, db: Session):
     )
 
 
-def compute_invoice_amount(total_amount: float, deposit_percentage: float) -> float:
+def compute_invoice_amount(total_amount, deposit_percentage) -> Decimal:
     """totalAmount * depositPercentage / 100, rounded to the cent. Decimal so
     e.g. 33.33% of 1000 is 333.30, not 333.29999..."""
     amount = Decimal(str(total_amount)) * Decimal(str(deposit_percentage)) / 100
-    return float(amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 def _regenerate_pdf(invoice: Invoice, db: Session) -> None:
     """The stored PDF always reflects the invoice's current data — called

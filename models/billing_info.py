@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Float, Integer, Enum, ForeignKey, ARRAY
+from sqlalchemy import Column, String, DateTime, Integer, Enum, ForeignKey, ARRAY, Numeric
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 import uuid
@@ -16,10 +16,10 @@ class BillingInfo(Base):
         ForeignKey("subprojects.subproject_id"),
         primary_key=True,
     )
-    totalInvoiced = Column("total_invoiced", Float)
-    totalPaid = Column("total_paid", Float)
-    totalRefunded = Column("total_refunded", Float)
-    balanceDue = Column("balance_due", Float)
+    totalInvoiced = Column("total_invoiced", Numeric(12, 2))
+    totalPaid = Column("total_paid", Numeric(12, 2))
+    totalRefunded = Column("total_refunded", Numeric(12, 2))
+    balanceDue = Column("balance_due", Numeric(12, 2))
     status = Column(
         "status",
         Enum(

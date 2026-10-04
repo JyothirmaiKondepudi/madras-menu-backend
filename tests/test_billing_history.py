@@ -60,7 +60,7 @@ def test_record_payment_requires_vendor(client, test_project, test_user, vendor_
 
     resp = client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 5000},
+        json={"invoiceId": invoice["invoiceId"], "amount": 50},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
@@ -69,7 +69,7 @@ def test_record_payment_requires_vendor(client, test_project, test_user, vendor_
 def test_record_payment_nonexistent_invoice_404(client, vendor_auth_headers):
     resp = client.post(
         "/billing-history/payments",
-        json={"invoiceId": "00000000-0000-0000-0000-000000000000", "amount": 5000},
+        json={"invoiceId": "00000000-0000-0000-0000-000000000000", "amount": 50},
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 404
@@ -90,14 +90,14 @@ def test_record_payment_creates_billing_history_row(client, test_project, test_u
 
     resp = client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 5000, "billingMetadata": {"method": "check"}},
+        json={"invoiceId": invoice["invoiceId"], "amount": 50, "billingMetadata": {"method": "check"}},
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["eventType"] == "Payment_Succeeded"
     assert body["source"] == "Manual"
-    assert body["amount"] == 5000
+    assert body["amount"] == "50.00"
     assert body["billingMetadata"] == {"method": "check"}
     assert body["failureReason"] is None
 
@@ -114,7 +114,7 @@ def test_record_payment_without_subproject_skips_billing_info(client, test_proje
 
     resp = client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 5000},
+        json={"invoiceId": invoice["invoiceId"], "amount": 50},
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200, resp.text
@@ -131,27 +131,27 @@ def test_record_partial_then_full_payment_updates_billing_info(
 
     client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 6000},
+        json={"invoiceId": invoice["invoiceId"], "amount": 60},
         headers=vendor_auth_headers,
     )
     info = client.get(
         f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
     ).json()
-    assert info["totalInvoiced"] == 100.0
-    assert info["totalPaid"] == 60.0
-    assert info["balanceDue"] == 40.0
+    assert info["totalInvoiced"] == "100.00"
+    assert info["totalPaid"] == "60.00"
+    assert info["balanceDue"] == "40.00"
     assert info["status"] == "partial_payment_received"
 
     client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 4000},
+        json={"invoiceId": invoice["invoiceId"], "amount": 40},
         headers=vendor_auth_headers,
     )
     info = client.get(
         f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
     ).json()
-    assert info["totalPaid"] == 100.0
-    assert info["balanceDue"] == 0.0
+    assert info["totalPaid"] == "100.00"
+    assert info["balanceDue"] == "0.00"
     assert info["status"] == "paid_in_full"
 
 
@@ -168,7 +168,7 @@ def test_get_billing_history_for_invoice_forbidden_for_unrelated_client(
     invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
     client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 5000},
+        json={"invoiceId": invoice["invoiceId"], "amount": 50},
         headers=vendor_auth_headers,
     )
 
@@ -188,7 +188,7 @@ def test_client_only_sees_billing_history_for_linked_projects(
     )
     client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 5000},
+        json={"invoiceId": invoice["invoiceId"], "amount": 50},
         headers=vendor_auth_headers,
     )
 
@@ -208,3 +208,13 @@ def test_client_only_sees_billing_history_for_linked_projects(
     resp = client.get(f"/billing-history/subprojects/{subproject['subprojectId']}", headers=client_auth)
     assert resp.status_code == 200
     assert len(resp.json()) == 1
+
+
+def test_record_payment_rejects_fractions_of_a_cent(client, test_project, test_user, vendor_auth_headers):
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    resp = client.post(
+        "/billing-history/payments",
+        json={"invoiceId": invoice["invoiceId"], "amount": 10.005},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 422

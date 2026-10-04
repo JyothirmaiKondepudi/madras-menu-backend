@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Float, Integer, Enum, ForeignKey, ARRAY
+from sqlalchemy import Column, String, DateTime, Integer, Enum, ForeignKey, ARRAY, Numeric
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -78,7 +78,7 @@ class Subproject(Base):
         ),
         nullable=False,
     )
-    minPricePerPerson = Column("min_price_per_person", Float)
-    maxPricePerPerson = Column("max_price_per_person", Float)
+    minPricePerPerson = Column("min_price_per_person", Numeric(12, 2))
+    maxPricePerPerson = Column("max_price_per_person", Numeric(12, 2))
 
     project = relationship("Project")

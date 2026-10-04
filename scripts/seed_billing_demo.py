@@ -13,6 +13,7 @@ Refuses to run twice.
 import os
 import sys
 from datetime import datetime
+from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,10 +24,10 @@ from models import BillingHistory, BillingInfo, Invoice, Organization, Project, 
 from services.billing_history import record_payment  # noqa: E402
 from services.invoices import compute_invoice_amount  # noqa: E402
 
-# project -> payments (in cents) for its existing reception invoice and the new mehendi invoice
+# project -> payments (in dollars) for its existing reception invoice and the new mehendi invoice
 PLAN = {
-    "Sharma Wedding": {"reception": [100000], "mehendi": [150000]},  # partial, paid in full
-    "Iyer Reception": {"reception": [250000], "mehendi": [50000]},   # paid in full, partial
+    "Sharma Wedding": {"reception": [Decimal("1000.00")], "mehendi": [Decimal("1500.00")]},  # partial, paid in full
+    "Iyer Reception": {"reception": [Decimal("2500.00")], "mehendi": [Decimal("500.00")]},   # paid in full, partial
 }
 
 
@@ -84,13 +85,13 @@ def main() -> None:
                 ("reception", reception_sub, reception_invoice),
                 ("mehendi", mehendi_sub, mehendi_invoice),
             ):
-                for cents in payments[label]:
-                    entry = record_payment(invoice, amount=cents, occurred_at=None,
+                for dollars in payments[label]:
+                    entry = record_payment(invoice, amount=dollars, occurred_at=None,
                                            billing_metadata={"note": "demo seed"}, db=db)
                 info = db.get(BillingInfo, sub.subprojectId)
                 print(f"  {label:<9} subproject {sub.subprojectId}")
                 print(f"            invoice    {invoice.invoiceId}  (due ${invoice.invoiceAmount:,.2f})")
-                print(f"            payment    {entry.id}  (${cents / 100:,.2f})")
+                print(f"            payment    {entry.id}  (${dollars:,.2f})")
                 print(f"            status     {info.status}, balance ${info.balanceDue:,.2f}")
     finally:
         db.close()
