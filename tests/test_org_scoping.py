@@ -157,6 +157,7 @@ def org_b(client, vendor_b):
         ("get", "/billing-history/subprojects/{subproject}", None),
         ("get", "/billing-info/subprojects/{subproject}", None),
         ("get", "/users/{user}", None),
+        ("get", "/projects/users/{user}", None),
         ("get", "/subprojects/projects/{project}", None),
         ("patch", "/users/{user}", {"fullName": "Taken over"}),
         ("delete", "/users/{user}", None),
@@ -403,7 +404,9 @@ def test_billing_history_list_only_shows_own_org(
         ("/invoices", "invoiceId", "invoice"),
     ],
 )
-def test_list_only_shows_own_org(client, org_a, org_b, vendor_b, path, id_field, record):
+def test_list_only_shows_own_org(
+    client, org_a, org_b, vendor_b, path, id_field, record
+):
     resp = client.get(path, headers=vendor_b["headers"])
     assert resp.status_code == 200, resp.text
 
