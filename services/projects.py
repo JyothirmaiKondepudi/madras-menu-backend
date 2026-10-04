@@ -7,10 +7,8 @@ from services.notifications import create_notification
 
 
 def get_all_projects(organization_id, db: Session):
-    """ "All projects" now means all projects in the caller's own
-    organization — not literally every project in the database. Passing
-    organization_id=None (a vendor not yet assigned to an org) matches
-    only projects that are themselves org-less, never every tenant's."""
+    """All projects in the given organization. organization_id=None matches
+    only org-less projects, never every tenant's."""
     return (
         db.execute(
             select(Project)
@@ -38,7 +36,6 @@ def add_new_Project(newProject, db: Session, organization_id=None, actor_id=None
     )
     db.add(created_Project)
     db.commit()
-    print(f"commited to database succesfully")
     db.refresh(created_Project)
     record_activity(
         db,
@@ -88,29 +85,17 @@ def get_all_projects_by_user_id(user_id, db: Session):
 
 
 def set_final_invoice(project: Project, invoice_id, db: Session) -> Project:
-    """Points project.finalInvoiceId at invoice_id. The caller (route layer)
-    is responsible for confirming invoice_id actually exists and belongs
-    to this project before calling this — this function just performs the
-    write, matching how add_user_to_project separates "is this valid" from
-    "make it so.\" """
+    """Sets project.finalInvoiceId. The caller must validate the invoice
+    belongs to this project."""
     project.finalInvoiceId = invoice_id
     db.commit()
     db.refresh(project)
     return project
 
 
-def add_user_to_project(project_id, user_id, db: Session, actor_id=None):
-    """Links an already-existing user to an already-existing project via
-    user_projects — the "add an existing client" action. Returns None if
-    either id doesn't exist. Idempotent: linking an already-linked user
-    again is a no-op, not a conflict — and not logged again either, since
-    nothing actually happened the second time."""
-    project = db.get(Project, project_id)
-    if project is None:
-        return None
-    user = db.get(User, user_id)
-    if user is None:
-        return None
+def add_user_to_project(project: Project, user: User, db: Session, actor_id=None):
+    """Links a user to a project via user_projects. The caller must check
+    both are in its org. Idempotent: re-linking is a silent no-op."""
 
     if user not in project.users:
         existing_clients = list(project.users)

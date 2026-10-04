@@ -5,7 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Permission, RolePermission
+from uuid import UUID
+from models import User, Permission, RolePermission, Project, Subproject, Invoice
 from auth.security import decode_access_token
 
 # HTTPBearer, not OAuth2PasswordBearer — login uses a JSON body, not form-encoded fields
@@ -70,3 +71,50 @@ def require_permission(permission_name: str):
 def user_project_ids(user: User) -> set:
     """Project ids this user is linked to via user_projects."""
     return {p.projectId for p in user.projects}
+
+
+def load_project_in_org(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Project:
+    project = db.get(Project, project_id)
+    if project is None or project.organizationId != current_user.userOrg:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+def load_user_in_org(
+    user_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    user = db.get(User, user_id)
+    if user is None or user.userOrg != current_user.userOrg:
+        raise HTTPException(status_code=404, detail="user not found")
+    return user
+
+
+def load_subproject_in_org(
+    subproject_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Subproject:
+    sub_project = db.get(Subproject, subproject_id)
+    if (
+        sub_project is None
+        or sub_project.project.organizationId != current_user.userOrg
+    ):
+        raise HTTPException(status_code=404, detail="sub project not found")
+    return sub_project
+
+
+def load_invoice_in_org(
+    invoice_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Invoice:
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None or invoice.project.organizationId != current_user.userOrg:
+        raise HTTPException(status_code=404, detail="invoice not found")
+    return invoice

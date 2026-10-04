@@ -41,5 +41,4 @@ class InvoiceUpdate(BaseModel):
     totalAmount: float | None = Field(default=None, gt=0)
     depositPercentage: float | None = Field(default=None, gt=0, le=100)
     invoiceAssignedTo: UUID | None = None
-    projectAssociatedTo: UUID | None = None
     subprojectId: UUID | None = None
