@@ -20,8 +20,11 @@ router = APIRouter()
     response_model=list[UserOut],
     dependencies=[Depends(require_permission("user:list"))],
 )
-def get_users(db: Session = Depends(get_db)):
-    users = get_all_users(db)
+def get_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    users = get_all_users(db, current_user.userOrg)
     return users
 
 

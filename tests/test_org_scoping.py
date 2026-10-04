@@ -108,6 +108,8 @@ def vendor_b(client, engine):
     ("patch", "/invoices/{invoice}/reject", None),
     ("get", "/invoices/{invoice}/pdf", None),
     ("get", "/billing-history/invoices/{invoice}", None),
+    ("get", "/billing-history/subprojects/{subproject}", None),
+    ("get", "/billing-info/subprojects/{subproject}", None),
     ("get", "/users/{user}", None),
     ("patch", "/users/{user}", {"fullName": "Taken over"}),
     ("delete", "/users/{user}", None),
@@ -213,3 +215,48 @@ def test_invoice_subproject_must_belong_to_its_project(client, org_a, test_user,
     )
     assert create.status_code == 404
     assert update.status_code == 404
+
+
+# --- List endpoints only return the caller's own org (ticket B2) ------------
+
+def _org_b_payment(client, vendor_b):
+    """Gives Org B a project, an invoice on one of its subprojects, and a payment."""
+    b = vendor_b["headers"]
+    project = client.post("/projects", json=_project_body(vendor_b["userId"], name="Org B Project"), headers=b).json()
+    subproject = client.post("/subprojects", json=_subproject_body(project["projectId"]), headers=b).json()
+    invoice = client.post(
+        "/invoices",
+        json=_invoice_body(project["projectId"], vendor_b["userId"], subprojectId=subproject["subprojectId"]),
+        headers=b,
+    ).json()
+    payment = client.post("/billing-history/payments", json={"invoiceId": invoice["invoiceId"], "amount": 2222}, headers=b)
+    assert payment.status_code == 200, payment.text
+    return {"subproject": subproject["subprojectId"], "payment": payment.json()["id"]}
+
+
+def test_user_list_only_shows_own_org(client, org_a, vendor_b, vendor_auth_headers):
+    ids = [u["userId"] for u in client.get("/users", headers=vendor_auth_headers).json()]
+    assert org_a["user"] in ids
+    assert vendor_b["userId"] not in ids
+
+
+def test_billing_history_list_only_shows_own_org(client, org_a, vendor_b, vendor_auth_headers):
+    own = client.post(
+        "/billing-history/payments", json={"invoiceId": org_a["invoice"], "amount": 1111}, headers=vendor_auth_headers
+    ).json()
+    other = _org_b_payment(client, vendor_b)
+
+    ids = [row["id"] for row in client.get("/billing-history", headers=vendor_auth_headers).json()]
+    assert ids == [own["id"]]  # just Org A's payment, exactly once
+    assert other["payment"] not in ids
+
+
+def test_billing_info_list_only_shows_own_org(client, org_a, vendor_b, vendor_auth_headers):
+    client.post(
+        "/billing-history/payments", json={"invoiceId": org_a["invoice"], "amount": 1111}, headers=vendor_auth_headers
+    )
+    other = _org_b_payment(client, vendor_b)
+
+    ids = [row["subprojectId"] for row in client.get("/billing-info", headers=vendor_auth_headers).json()]
+    assert ids == [org_a["subproject"]]
+    assert other["subproject"] not in ids
