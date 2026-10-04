@@ -41,8 +41,7 @@ def main() -> None:
         if db.execute(select(User).where(User.userEmail == args.vendor_email)).scalars().first():
             sys.exit(f"A user with email {args.vendor_email} already exists; nothing to do.")
 
-        # user_data and organizations reference each other: insert the org
-        # first, then the vendor in it, then point the org at its vendor
+        # the vendor needs an org, so the org goes in first
         org = Organization(orgName=args.org_name, orgEmail=args.org_email, orgDisabled=False)
         db.add(org)
         db.flush()
@@ -57,9 +56,6 @@ def main() -> None:
             passwordHash=hash_password(password),
         )
         db.add(vendor)
-        db.flush()
-
-        org.orgVendor = vendor.userId
         db.commit()
         print(f"Created org '{org.orgName}' ({org.orgId}) and vendor {vendor.userEmail} ({vendor.userId}).")
     finally:

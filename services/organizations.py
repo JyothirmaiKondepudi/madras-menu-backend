@@ -22,7 +22,6 @@ def create_new_org(new_org, db):
     created_org = Organization(
         orgId=new_org.orgId,
         orgName=new_org.orgName,
-        orgVendor=new_org.orgVendor,
         orgEmail=new_org.orgEmail,
         orgDisabled=new_org.orgDisabled,
     )

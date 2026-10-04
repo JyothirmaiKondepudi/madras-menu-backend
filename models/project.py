@@ -34,16 +34,12 @@ class Project(Base):
     vendorOnProject = Column(
         "vendor_on_project", UUID(as_uuid=True), ForeignKey("user_data.user_id")
     )
-    # The tenant this project belongs to — nullable only because existing
-    # rows predate Organization; set automatically from the creating
-    # vendor's own org, never client-supplied. Invoice/Subproject scope by
-    # joining through here rather than each carrying their own copy, so
-    # there's exactly one place a project's org can drift from.
+    # The tenant this project belongs to
     organizationId = Column(
         "organization_id",
         UUID(as_uuid=True),
         ForeignKey("organizations.org_id"),
-        nullable=True,
+        nullable=False,
     )
     # The invoice the client actually went ahead with; null until set explicitly.
     # use_alter=True: invoices already FKs to projects, so this avoids a circular FK.

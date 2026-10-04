@@ -113,8 +113,6 @@ def test_vendor_login(engine):
         passwordHash=hash_password("correct-horse-battery-staple"),
     )
     db.add(vendor)
-    db.flush()
-    org.orgVendor = vendor.userId
     db.commit()
     db.refresh(vendor)
     result = {

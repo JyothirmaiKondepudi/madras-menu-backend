@@ -29,21 +29,12 @@ class User(Base):
     updatedAt = Column(
         "updated_at", DateTime, default=datetime.now, onupdate=datetime.now
     )
-    # use_alter=True + an explicit name: Organization.orgVendor already points
-    # at user_data, so this column creates a genuine two-way cycle between
-    # the two tables. Without use_alter, Base.metadata.create_all()/drop_all()
-    # (what the test suite uses) can't figure out which FK to drop first —
-    # caught for real when the full test suite's teardown raised
-    # CircularDependencyError. use_alter defers this one constraint to a
-    # separate ALTER TABLE after both tables exist, which resolves the cycle.
     # Every user (vendor or client) belongs to exactly one org; new users
     # inherit their creator's. The first org + vendor come from scripts/seed_dev.py.
     userOrg = Column(
         "user_org",
         UUID(as_uuid=True),
-        ForeignKey(
-            "organizations.org_id", use_alter=True, name="fk_user_data_user_org"
-        ),
+        ForeignKey("organizations.org_id", name="fk_user_data_user_org"),
         nullable=False,
     )
 

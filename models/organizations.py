@@ -10,12 +10,6 @@ class Organization(Base):
 
     orgId = Column("org_id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     orgName = Column("org_name", String, nullable=False)
-    orgVendor = Column(
-        "org_vendor",
-        UUID(as_uuid=True),
-        ForeignKey("user_data.user_id"),
-        nullable=True,
-    )
     orgCreatedAt = Column("org_created_at", DateTime, default=datetime.now)
     orgEmail = Column("org_email", String, nullable=False)
     orgDisabled = Column("org_disabled", Boolean, nullable=False)
