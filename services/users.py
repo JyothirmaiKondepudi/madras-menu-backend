@@ -6,6 +6,8 @@ from auth.security import hash_password
 from services.notifications import create_notification
 from services.account_activity import record_activity
 
+from uuid import UUID
+
 # maps each UserUpdate/UserCreate field name to the ORM attribute it corresponds to
 USER_FIELD_MAP = {
     "fullName": "fullName",
@@ -17,8 +19,8 @@ USER_FIELD_MAP = {
 }
 
 
-def get_all_users(db: Session):
-    return db.execute(select(User)).scalars().all()
+def get_all_users(db: Session, org_id: UUID):
+    return db.execute(select(User).where(User.userOrg == org_id)).scalars().all()
 
 
 def get_user_by_user_id(user_id, db: Session):
