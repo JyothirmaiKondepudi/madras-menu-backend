@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
 from typing import Literal
@@ -10,9 +11,9 @@ class InvoiceOut(BaseModel):
     invoiceStatus: Literal[
         "Generated", "Assigned", "Pending", "Accepted", "Paid", "Declined"
     ]
-    invoiceAmount: float
-    totalAmount: float | None = None
-    depositPercentage: float | None = None
+    invoiceAmount: Decimal
+    totalAmount: Decimal | None = None
+    depositPercentage: Decimal | None = None
     invoiceAssignedTo: UUID
     projectAssociatedTo: UUID
     subprojectId: UUID | None = None
@@ -26,8 +27,8 @@ class InvoiceCreate(BaseModel):
         "Generated", "Assigned", "Pending", "Accepted", "Paid", "Declined"
     ]
     # invoiceAmount isn't sent: it's totalAmount * depositPercentage / 100
-    totalAmount: float = Field(gt=0)
-    depositPercentage: float = Field(gt=0, le=100)
+    totalAmount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    depositPercentage: Decimal = Field(gt=0, le=100, max_digits=5, decimal_places=2)
     invoiceAssignedTo: UUID
     projectAssociatedTo: UUID
     subprojectId: UUID | None = None
@@ -38,7 +39,7 @@ class InvoiceUpdate(BaseModel):
         Literal["Generated", "Assigned", "Pending", "Accepted", "Paid", "Declined"]
         | None
     ) = None
-    totalAmount: float | None = Field(default=None, gt=0)
-    depositPercentage: float | None = Field(default=None, gt=0, le=100)
+    totalAmount: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    depositPercentage: Decimal | None = Field(default=None, gt=0, le=100, max_digits=5, decimal_places=2)
     invoiceAssignedTo: UUID | None = None
     subprojectId: UUID | None = None

@@ -236,7 +236,7 @@ def test_other_org_cannot_add_invoice_to_project(client, org_a, vendor_b):
 def test_other_org_cannot_record_payment_on_invoice(client, org_a, vendor_b):
     resp = client.post(
         "/billing-history/payments",
-        json={"invoiceId": org_a["invoice"], "amount": 5000},
+        json={"invoiceId": org_a["invoice"], "amount": 50},
         headers=vendor_b["headers"],
     )
     assert resp.status_code == 404
@@ -363,7 +363,7 @@ def _org_b_payment(client, vendor_b):
     ).json()
     payment = client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 2222},
+        json={"invoiceId": invoice["invoiceId"], "amount": 22.22},
         headers=b,
     )
     assert payment.status_code == 200, payment.text
@@ -383,7 +383,7 @@ def test_billing_history_list_only_shows_own_org(
 ):
     own = client.post(
         "/billing-history/payments",
-        json={"invoiceId": org_a["invoice"], "amount": 1111},
+        json={"invoiceId": org_a["invoice"], "amount": 11.11},
         headers=vendor_auth_headers,
     ).json()
     other = _org_b_payment(client, vendor_b)
@@ -420,7 +420,7 @@ def test_billing_info_list_only_shows_own_org(
 ):
     client.post(
         "/billing-history/payments",
-        json={"invoiceId": org_a["invoice"], "amount": 1111},
+        json={"invoiceId": org_a["invoice"], "amount": 11.11},
         headers=vendor_auth_headers,
     )
     other = _org_b_payment(client, vendor_b)

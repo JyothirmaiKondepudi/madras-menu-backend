@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pydantic import BaseModel, ConfigDict
 from uuid import UUID
 from datetime import datetime
@@ -39,8 +40,8 @@ class SubprojectOut(BaseModel):
         "house Warming",
         "High tea",
     ]
-    minPricePerPerson: float | None = None
-    maxPricePerPerson: float | None = None
+    minPricePerPerson: Decimal | None = None
+    maxPricePerPerson: Decimal | None = None
     project: ProjectOut
 
     model_config = ConfigDict(from_attributes=True)
@@ -78,8 +79,8 @@ class SubprojectCreate(BaseModel):
         "house Warming",
         "High tea",
     ]
-    minPricePerPerson: float | None = None
-    maxPricePerPerson: float | None = None
+    minPricePerPerson: Decimal | None = None
+    maxPricePerPerson: Decimal | None = None
 
 
 class SubprojectUpdate(BaseModel):
@@ -118,5 +119,5 @@ class SubprojectUpdate(BaseModel):
         ]
         | None
     ) = None
-    minPricePerPerson: float | None = None
-    maxPricePerPerson: float | None = None
+    minPricePerPerson: Decimal | None = None
+    maxPricePerPerson: Decimal | None = None

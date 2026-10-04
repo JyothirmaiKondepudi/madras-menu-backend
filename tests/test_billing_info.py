@@ -67,7 +67,7 @@ def test_vendor_sees_all_billing_info(client, test_project, test_user, vendor_au
     )
     client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 10000},
+        json={"invoiceId": invoice["invoiceId"], "amount": 100},
         headers=vendor_auth_headers,
     )
 
@@ -85,7 +85,7 @@ def test_client_only_sees_billing_info_for_linked_projects(
     )
     client.post(
         "/billing-history/payments",
-        json={"invoiceId": invoice["invoiceId"], "amount": 10000},
+        json={"invoiceId": invoice["invoiceId"], "amount": 100},
         headers=vendor_auth_headers,
     )
 

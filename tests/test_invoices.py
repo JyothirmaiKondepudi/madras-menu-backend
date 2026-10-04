@@ -17,7 +17,7 @@ def test_create_invoice(client, test_user, test_project, vendor_auth_headers):
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["invoiceAmount"] == 2500.0
+    assert resp.json()["invoiceAmount"] == "2500.00"
     assert resp.json()["project"]["projectId"] == test_project["projectId"]
 
 
@@ -299,9 +299,9 @@ def test_invoice_amount_is_deposit_percentage_of_total(client, test_user, test_p
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["invoiceAmount"] == 2500.0
-    assert body["totalAmount"] == 10000.0
-    assert body["depositPercentage"] == 25
+    assert body["invoiceAmount"] == "2500.00"
+    assert body["totalAmount"] == "10000.00"
+    assert body["depositPercentage"] == "25.00"
 
 
 def test_invoice_amount_rounds_to_the_cent(client, test_user, test_project, vendor_auth_headers):
@@ -310,7 +310,7 @@ def test_invoice_amount_rounds_to_the_cent(client, test_user, test_project, vend
         json=_invoice_body(test_project["projectId"], test_user["userId"], totalAmount=1000.0, depositPercentage=33.33),
         headers=vendor_auth_headers,
     )
-    assert resp.json()["invoiceAmount"] == 333.30
+    assert resp.json()["invoiceAmount"] == "333.30"
 
 
 def test_deposit_percentage_out_of_range_rejected(client, test_user, test_project, vendor_auth_headers):
@@ -334,4 +334,4 @@ def test_updating_deposit_percentage_recomputes_amount(client, test_user, test_p
         f"/invoices/{created['invoiceId']}", json={"depositPercentage": 50}, headers=vendor_auth_headers
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["invoiceAmount"] == 4000.0
+    assert resp.json()["invoiceAmount"] == "4000.00"
