@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
+from typing import Literal
 
 
 class UserOut(BaseModel):
@@ -9,7 +10,7 @@ class UserOut(BaseModel):
     userPhoneNumber: str
     preferredContact: str
     userAddress: str | None = None
-    userRole: str
+    userRole: Literal["client", "vendor", "platform_admin"]
     userOrg: UUID
 
     model_config = ConfigDict(from_attributes=True)
@@ -21,7 +22,7 @@ class UserCreate(BaseModel):
     phoneNumber: str
     preferredContact: str
     address: str | None = None
-    role: str
+    role: Literal["client", "vendor", "platform_admin"]
     # Optional: lets whoever creates a user (a vendor, via this endpoint)
     # also set their login credential in the same call. A user created
     # without one just can't log in yet — not every user_data row needs to.

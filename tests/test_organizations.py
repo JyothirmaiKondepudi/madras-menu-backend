@@ -35,24 +35,29 @@ def _client_headers(client, email):
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-def test_create_organization(client, vendor_auth_headers):
+def test_create_organization(client, platform_admin_headers):
     body = _org_body(orgName="Madras Catering")
-    resp = client.post("/organizations", json=body, headers=vendor_auth_headers)
+    resp = client.post("/organizations", json=body, headers=platform_admin_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["orgId"] == body["orgId"]
     assert resp.json()["orgName"] == "Madras Catering"
     assert resp.json()["orgDisabled"] is False
 
 
-def test_create_organization_with_duplicate_email_returns_409(client, vendor_auth_headers):
-    _create_org(client, vendor_auth_headers, orgEmail="dupe@example.com")
-    resp = client.post("/organizations", json=_org_body(orgEmail="dupe@example.com"), headers=vendor_auth_headers)
+def test_create_organization_with_duplicate_email_returns_409(client, platform_admin_headers):
+    _create_org(client, platform_admin_headers, orgEmail="dupe@example.com")
+    resp = client.post("/organizations", json=_org_body(orgEmail="dupe@example.com"), headers=platform_admin_headers)
     assert resp.status_code == 409
 
 
-def test_create_organization_requires_vendor(client, test_client_login):
+def test_create_organization_forbidden_for_client(client, test_client_login):
     headers = _client_headers(client, test_client_login["userEmail"])
     assert client.post("/organizations", json=_org_body(), headers=headers).status_code == 403
+
+
+def test_create_organization_forbidden_for_vendor(client, vendor_auth_headers):
+    # org lifecycle is platform-only (see auth/permissions.py)
+    assert client.post("/organizations", json=_org_body(), headers=vendor_auth_headers).status_code == 403
 
 
 def test_organizations_require_auth(client):
@@ -60,8 +65,8 @@ def test_organizations_require_auth(client):
     assert client.get(f"/organizations/{uuid.uuid4()}").status_code == 401
 
 
-def test_get_own_organization(client, engine, vendor_auth_headers, test_vendor_login):
-    org = _create_org(client, vendor_auth_headers, orgName="Own Org")
+def test_get_own_organization(client, engine, vendor_auth_headers, test_vendor_login, platform_admin_headers):
+    org = _create_org(client, platform_admin_headers, orgName="Own Org")
     _join_org(engine, test_vendor_login["userId"], org["orgId"])
 
     resp = client.get(f"/organizations/{org['orgId']}", headers=vendor_auth_headers)
@@ -69,9 +74,11 @@ def test_get_own_organization(client, engine, vendor_auth_headers, test_vendor_l
     assert resp.json()["orgName"] == "Own Org"
 
 
-def test_get_another_organization_forbidden(client, engine, vendor_auth_headers, test_vendor_login):
-    own = _create_org(client, vendor_auth_headers)
-    other = _create_org(client, vendor_auth_headers)
+def test_get_another_organization_forbidden(
+    client, engine, vendor_auth_headers, test_vendor_login, platform_admin_headers
+):
+    own = _create_org(client, platform_admin_headers)
+    other = _create_org(client, platform_admin_headers)
     _join_org(engine, test_vendor_login["userId"], own["orgId"])
 
     assert client.get(f"/organizations/{other['orgId']}", headers=vendor_auth_headers).status_code == 403
@@ -82,8 +89,15 @@ def test_list_all_organizations_not_granted_to_vendor(client, vendor_auth_header
     assert client.get("/organizations/all", headers=vendor_auth_headers).status_code == 403
 
 
-def test_update_own_organization(client, engine, vendor_auth_headers, test_vendor_login):
-    org = _create_org(client, vendor_auth_headers)
+def test_platform_admin_lists_all_organizations(client, platform_admin_headers):
+    created = _create_org(client, platform_admin_headers, orgName="Listed Org")
+    resp = client.get("/organizations/all", headers=platform_admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert created["orgId"] in [o["orgId"] for o in resp.json()]
+
+
+def test_update_own_organization(client, engine, vendor_auth_headers, test_vendor_login, platform_admin_headers):
+    org = _create_org(client, platform_admin_headers)
     _join_org(engine, test_vendor_login["userId"], org["orgId"])
 
     resp = client.patch(
@@ -95,19 +109,26 @@ def test_update_own_organization(client, engine, vendor_auth_headers, test_vendo
     assert resp.json()["orgEmail"] == org["orgEmail"]
 
 
-def test_update_another_organization_forbidden(client, engine, vendor_auth_headers, test_vendor_login):
-    own = _create_org(client, vendor_auth_headers)
-    other = _create_org(client, vendor_auth_headers, orgName="Other")
+def test_update_another_organization_forbidden(
+    client, engine, vendor_auth_headers, test_vendor_login, platform_admin_headers
+):
+    own = _create_org(client, platform_admin_headers)
+    other = _create_org(client, platform_admin_headers, orgName="Other")
     _join_org(engine, test_vendor_login["userId"], own["orgId"])
 
     resp = client.patch(f"/organizations/{other['orgId']}", json={"orgName": "Hijacked"}, headers=vendor_auth_headers)
     assert resp.status_code == 403
 
 
-def test_delete_organization(client, vendor_auth_headers):
-    org = _create_org(client, vendor_auth_headers)
-    assert client.delete(f"/organizations/{org['orgId']}", headers=vendor_auth_headers).status_code == 204
+def test_delete_organization(client, platform_admin_headers):
+    org = _create_org(client, platform_admin_headers)
+    assert client.delete(f"/organizations/{org['orgId']}", headers=platform_admin_headers).status_code == 204
 
 
-def test_delete_nonexistent_organization_returns_404(client, vendor_auth_headers):
-    assert client.delete(f"/organizations/{uuid.uuid4()}", headers=vendor_auth_headers).status_code == 404
+def test_delete_organization_forbidden_for_vendor(client, vendor_auth_headers, platform_admin_headers):
+    org = _create_org(client, platform_admin_headers)
+    assert client.delete(f"/organizations/{org['orgId']}", headers=vendor_auth_headers).status_code == 403
+
+
+def test_delete_nonexistent_organization_returns_404(client, platform_admin_headers):
+    assert client.delete(f"/organizations/{uuid.uuid4()}", headers=platform_admin_headers).status_code == 404
