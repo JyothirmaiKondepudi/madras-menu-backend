@@ -104,6 +104,34 @@ def vendor_b(client, engine):
     }
 
 
+@pytest.fixture()
+def org_b(client, vendor_b):
+    """Org B's data, created through the API by Vendor B."""
+    b = vendor_b["headers"]
+    project = client.post(
+        "/projects",
+        json=_project_body(vendor_b["userId"], name="Org B Project"),
+        headers=b,
+    ).json()
+    subproject = client.post(
+        "/subprojects", json=_subproject_body(project["projectId"]), headers=b
+    ).json()
+    invoice = client.post(
+        "/invoices",
+        json=_invoice_body(
+            project["projectId"],
+            vendor_b["userId"],
+            subprojectId=subproject["subprojectId"],
+        ),
+        headers=b,
+    ).json()
+    return {
+        "project": project["projectId"],
+        "subproject": subproject["subprojectId"],
+        "invoice": invoice["invoiceId"],
+    }
+
+
 # --- Vendor B acting on Org A's records by id ------------------------------
 
 
@@ -130,6 +158,9 @@ def vendor_b(client, engine):
         ("get", "/billing-info/subprojects/{subproject}", None),
         ("get", "/users/{user}", None),
         ("get", "/subprojects/projects/{project}", None),
+        ("get", "/projects", None),
+        ("get", "/subprojects", None),
+        ("get", "/invoices", None),
         ("patch", "/users/{user}", {"fullName": "Taken over"}),
         ("delete", "/users/{user}", None),
     ],
@@ -365,6 +396,13 @@ def test_billing_history_list_only_shows_own_org(
     ]
     assert ids == [own["id"]]  # just Org A's payment, exactly once
     assert other["payment"] not in ids
+
+
+def test_project_list_only_shows_its_own(client, org_a, org_b, vendor_b):
+    response = client.get("/projects", headers=vendor_b["headers"])
+    project_list = set(r["projectId"] for r in response.json())
+
+    assert org_a["project"] not in project_list
 
 
 def test_billing_info_list_only_shows_own_org(
