@@ -7,8 +7,7 @@ from services.notifications import create_notification
 
 
 def get_all_projects(organization_id, db: Session):
-    """All projects in the given organization. organization_id=None matches
-    only org-less projects, never every tenant's."""
+    """All projects in the given organization."""
     return (
         db.execute(
             select(Project)
