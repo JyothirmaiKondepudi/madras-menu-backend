@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, Table
+from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, Table, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -32,7 +32,10 @@ class Project(Base):
     projectStartDate = Column("project_start_date", DateTime, default=datetime.now)
     projectEndDate = Column("project_end_date", DateTime, default=datetime.now)
     vendorOnProject = Column(
-        "vendor_on_project", UUID(as_uuid=True), ForeignKey("user_data.user_id")
+        "vendor_on_project",
+        UUID(as_uuid=True),
+        ForeignKey("user_data.user_id"),
+        index=True,
     )
     # The tenant this project belongs to
     organizationId = Column(
@@ -40,6 +43,7 @@ class Project(Base):
         UUID(as_uuid=True),
         ForeignKey("organizations.org_id"),
         nullable=False,
+        index=True,
     )
     # The invoice the client actually went ahead with; null until set explicitly.
     # use_alter=True: invoices already FKs to projects, so this avoids a circular FK.
@@ -50,6 +54,7 @@ class Project(Base):
             "invoices.invoice_id", use_alter=True, name="fk_projects_final_invoice_id"
         ),
         nullable=True,
+        index=True,
     )
 
     vendor = relationship("User", foreign_keys=[vendorOnProject])
@@ -76,4 +81,5 @@ user_projects = Table(
         ForeignKey("projects.project_id", ondelete="CASCADE"),
         primary_key=True,
     ),
+    Index("user_projects_project_id", "project_id"),
 )
