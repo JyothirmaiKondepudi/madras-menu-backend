@@ -127,6 +127,38 @@ def test_vendor_login(engine):
 
 
 @pytest.fixture()
+def platform_admin_headers(client, engine):
+    """Bearer headers for a platform admin in its own (super) org. The only
+    role allowed to create, list or delete organizations."""
+    from sqlalchemy.orm import sessionmaker
+    from models import Organization, User
+    from auth.security import hash_password
+
+    db = sessionmaker(bind=engine)()
+    org = Organization(orgName="Platform Org", orgEmail="platform.org@example.com", orgDisabled=False)
+    db.add(org)
+    db.flush()
+    db.add(User(
+        fullName="Platform Admin",
+        userEmail="platform.admin@example.com",
+        userPhoneNumber="5550004444",
+        preferredContact="email",
+        userRole="platform_admin",
+        userOrg=org.orgId,
+        passwordHash=hash_password("correct-horse-battery-staple"),
+    ))
+    db.commit()
+    db.close()
+
+    resp = client.post("/auth/login", json={
+        "email": "platform.admin@example.com",
+        "password": "correct-horse-battery-staple",
+    })
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+@pytest.fixture()
 def vendor_auth_headers(client, test_vendor_login):
     """Bearer headers for a vendor — the default authenticated caller for tests
     that aren't themselves testing authorization scoping."""

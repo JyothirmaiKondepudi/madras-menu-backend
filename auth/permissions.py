@@ -6,6 +6,7 @@ PERMISSIONS = [
     ("user:create", "Create a new user account"),
     ("user:update", "Edit any user account"),
     ("user:delete", "Delete a user account"),
+    ("user:grant_platform_admin", "Create users with the platform_admin role"),
     ("project:view_all", "View any project, not just ones you're linked to"),
     ("project:create", "Create a new project"),
     ("project:update", "Edit any project"),
@@ -20,8 +21,14 @@ PERMISSIONS = [
     ("invoice:create", "Create a new invoice"),
     ("invoice:update", "Edit any invoice"),
     ("invoice:delete", "Delete an invoice"),
-    ("billing:view_all", "View any subproject's billing history/info, not just your own"),
-    ("billing:create", "Record a billing transaction (e.g. a manually-entered payment)"),
+    (
+        "billing:view_all",
+        "View any subproject's billing history/info, not just your own",
+    ),
+    (
+        "billing:create",
+        "Record a billing transaction (e.g. a manually-entered payment)",
+    ),
     ("tax_category:manage", "Read or write tax categories/rates"),
     ("menu_item:create", "Add a new menu item"),
     ("menu_item:update", "Edit a menu item"),
@@ -44,7 +51,16 @@ PERMISSIONS = [
 # every OTHER org too — a real cross-tenant leak, caught by testing live
 # rather than assumed away. Reserved for a future platform-operator/sales
 # role once that actually exists — see routes/organizations.py.
-_VENDOR_EXCLUDED_PERMISSIONS = {"org:view_all"}
+_VENDOR_EXCLUDED_PERMISSIONS = {
+    "org:view_all",
+    "user:grant_platform_admin",
+    "org:create",
+    "org:delete",
+    "org:list",
+}
 ROLE_PERMISSIONS = {
-    "vendor": [name for name, _ in PERMISSIONS if name not in _VENDOR_EXCLUDED_PERMISSIONS],
+    "vendor": [
+        name for name, _ in PERMISSIONS if name not in _VENDOR_EXCLUDED_PERMISSIONS
+    ],
+    "platform_admin": [name for name, _ in PERMISSIONS],
 }

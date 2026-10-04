@@ -122,3 +122,31 @@ def test_create_user_ignores_client_supplied_org(client, vendor_auth_headers, te
     }, headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["userOrg"] == test_vendor_login["userOrg"]
+
+
+def _new_platform_admin_body(email):
+    return {
+        "fullName": "New Admin",
+        "email": email,
+        "phoneNumber": "5551234567",
+        "preferredContact": "email",
+        "role": "platform_admin",
+    }
+
+
+def test_vendor_cannot_create_platform_admin(client, vendor_auth_headers):
+    resp = client.post("/users", json=_new_platform_admin_body("sneaky.admin@example.com"), headers=vendor_auth_headers)
+    assert resp.status_code == 403
+
+
+def test_platform_admin_can_create_platform_admin(client, platform_admin_headers):
+    me = client.get("/auth/me", headers=platform_admin_headers).json()
+    resp = client.post("/users", json=_new_platform_admin_body("second.admin@example.com"), headers=platform_admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["userRole"] == "platform_admin"
+    assert resp.json()["userOrg"] == me["userOrg"]  # lands in the platform's own org
+
+
+def test_unknown_role_rejected(client, vendor_auth_headers):
+    body = _new_platform_admin_body("wizard@example.com") | {"role": "wizard"}
+    assert client.post("/users", json=body, headers=vendor_auth_headers).status_code == 422
