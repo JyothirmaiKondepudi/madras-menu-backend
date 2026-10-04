@@ -158,9 +158,6 @@ def org_b(client, vendor_b):
         ("get", "/billing-info/subprojects/{subproject}", None),
         ("get", "/users/{user}", None),
         ("get", "/subprojects/projects/{project}", None),
-        ("get", "/projects", None),
-        ("get", "/subprojects", None),
-        ("get", "/invoices", None),
         ("patch", "/users/{user}", {"fullName": "Taken over"}),
         ("delete", "/users/{user}", None),
     ],
@@ -398,11 +395,21 @@ def test_billing_history_list_only_shows_own_org(
     assert other["payment"] not in ids
 
 
-def test_project_list_only_shows_its_own(client, org_a, org_b, vendor_b):
-    response = client.get("/projects", headers=vendor_b["headers"])
-    project_list = set(r["projectId"] for r in response.json())
+@pytest.mark.parametrize(
+    "path, id_field, record",
+    [
+        ("/projects", "projectId", "project"),
+        ("/subprojects", "subprojectId", "subproject"),
+        ("/invoices", "invoiceId", "invoice"),
+    ],
+)
+def test_list_only_shows_own_org(client, org_a, org_b, vendor_b, path, id_field, record):
+    resp = client.get(path, headers=vendor_b["headers"])
+    assert resp.status_code == 200, resp.text
 
-    assert org_a["project"] not in project_list
+    ids = {item[id_field] for item in resp.json()}
+    assert org_b[record] in ids, f"Vendor B can't see its own {record} in {path}"
+    assert org_a[record] not in ids, f"Vendor B can see Org A's {record} in {path}"
 
 
 def test_billing_info_list_only_shows_own_org(
