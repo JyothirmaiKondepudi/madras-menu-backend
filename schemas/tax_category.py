@@ -1,8 +1,10 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
+from uuid import UUID
+
 
 class TaxCategoryOut(BaseModel):
-    id: str
+    id: UUID
     name: str
     jurisdiction: str
     ratePercent: float

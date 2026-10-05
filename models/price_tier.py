@@ -1,12 +1,12 @@
-from sqlalchemy import Column, String, Numeric
+from sqlalchemy import Column, String, Numeric, UUID
 import uuid
 from database import Base
 
 
 class PriceTier(Base):
-    __tablename__ = 'price_tiers'
+    __tablename__ = "price_tiers"
 
-    id = Column("id", String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column("name", String, nullable=False)
     occasionType = Column("occasion_type", String, nullable=False)
     serviceStyle = Column("service_style", String, nullable=False)

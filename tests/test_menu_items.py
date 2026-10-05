@@ -1,3 +1,6 @@
+import uuid
+
+
 def test_create_menu_item(client, vendor_auth_headers):
     resp = client.post("/menu-items", json={
         "name": "Bombay Veg. Sandwiches",
@@ -33,8 +36,13 @@ def test_get_menu_item_by_id(client, test_menu_item, vendor_auth_headers):
 
 
 def test_get_nonexistent_menu_item_returns_404(client, vendor_auth_headers):
-    resp = client.get("/menu-items/does-not-exist", headers=vendor_auth_headers)
+    resp = client.get(f"/menu-items/{uuid.uuid4()}", headers=vendor_auth_headers)
     assert resp.status_code == 404
+
+
+def test_get_menu_item_with_malformed_id_returns_422(client, vendor_auth_headers):
+    resp = client.get("/menu-items/does-not-exist", headers=vendor_auth_headers)
+    assert resp.status_code == 422
 
 
 def test_update_menu_item(client, test_menu_item, vendor_auth_headers):

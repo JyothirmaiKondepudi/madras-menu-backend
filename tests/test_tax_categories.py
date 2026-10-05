@@ -1,3 +1,6 @@
+import uuid
+
+
 def test_create_tax_category(client, vendor_auth_headers):
     resp = client.post("/tax-categories", json={
         "name": "prepared_food",
@@ -30,8 +33,13 @@ def test_get_tax_category_by_id(client, vendor_auth_headers):
 
 
 def test_get_nonexistent_tax_category_returns_404(client, vendor_auth_headers):
-    resp = client.get("/tax-categories/does-not-exist", headers=vendor_auth_headers)
+    resp = client.get(f"/tax-categories/{uuid.uuid4()}", headers=vendor_auth_headers)
     assert resp.status_code == 404
+
+
+def test_get_tax_category_with_malformed_id_returns_422(client, vendor_auth_headers):
+    resp = client.get("/tax-categories/does-not-exist", headers=vendor_auth_headers)
+    assert resp.status_code == 422
 
 
 def test_delete_tax_category(client, vendor_auth_headers):

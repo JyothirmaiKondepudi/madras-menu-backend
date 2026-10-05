@@ -3,6 +3,7 @@ deterministic regardless of environment. The real round-trip test calls Ollama
 for real and is skipped (not failed) if it's unreachable, e.g. in CI."""
 
 import socket
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -20,7 +21,7 @@ OLLAMA_AVAILABLE = _ollama_reachable()
 
 
 def test_embed_nonexistent_item_returns_404(client, vendor_auth_headers):
-    resp = client.post("/menu-items/does-not-exist/embedding", headers=vendor_auth_headers)
+    resp = client.post(f"/menu-items/{uuid.uuid4()}/embedding", headers=vendor_auth_headers)
     assert resp.status_code == 404
 
 

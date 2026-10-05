@@ -4,6 +4,7 @@ from sqlalchemy import (
     DateTime,
     Boolean,
     Numeric,
+    UUID,
     ForeignKey,
     ARRAY,
     func,
@@ -16,7 +17,7 @@ from database import Base
 class MenuItem(Base):
     __tablename__ = "menu_items"
 
-    id = Column("id", String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column("name", String, nullable=False, unique=True)
     course = Column("course", String, nullable=False)
     vegNonveg = Column("veg_nonveg", String, nullable=False)
@@ -50,7 +51,7 @@ class MenuItem(Base):
     costPerPerson = Column("cost_per_person", Numeric(8, 2))
     taxCategoryId = Column(
         "tax_category_id",
-        String,
+        UUID(as_uuid=True),
         ForeignKey("tax_categories.id", onupdate="CASCADE", ondelete="SET NULL"),
         index=True,
     )
@@ -59,7 +60,9 @@ class MenuItem(Base):
     )
     confidence = Column("confidence", String)
     sourceDocs = Column("source_docs", ARRAY(String), server_default=text("'{}'"))
-    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
+    createdAt = Column(
+        "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updatedAt = Column(
         "updated_at",
         DateTime(timezone=True),

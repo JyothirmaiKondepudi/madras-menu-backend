@@ -1,9 +1,10 @@
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
+from uuid import UUID
 
 
 class EmbeddingOut(BaseModel):
-    itemId: str
+    itemId: UUID
     embeddedText: str
     createdAt: datetime
 
@@ -11,6 +12,6 @@ class EmbeddingOut(BaseModel):
 
 
 class SearchResult(BaseModel):
-    itemId: str
+    itemId: UUID
     name: str
     distance: float
