@@ -1,5 +1,6 @@
-from models import Organization, Project, User, user_projects
-from sqlalchemy import select
+from models import Organization, Project, User, user_projects, Subproject, Invoice
+from sqlalchemy import select, func
+from uuid import UUID
 from sqlalchemy.orm import Session, selectinload
 from schemas.project import ProjectUpdate
 from services.account_activity import record_activity
@@ -26,7 +27,9 @@ def get_project_by_id(project_id, db: Session):
 
 def add_new_Project(newProject, db: Session, organization_id=None, actor_id=None):
     # times without an offset are local to the venue: the project's timezone, else the org's
-    timezone = newProject.projectTimezone or db.get(Organization, organization_id).orgTimezone
+    timezone = (
+        newProject.projectTimezone or db.get(Organization, organization_id).orgTimezone
+    )
     created_Project = Project(
         projectName=newProject.projectName,
         projectStatus=newProject.projectStatus,
@@ -140,3 +143,19 @@ def add_user_to_project(project: Project, user: User, db: Session, actor_id=None
                 related_user_id=user.userId,
             )
     return project
+
+
+def get_sub_project_count(project_id: UUID, db: Session):
+    return db.scalar(
+        select(func.count())
+        .select_from(Subproject)
+        .where(Subproject.projectAssociatedTo == project_id)
+    )
+
+
+def get_invoice_count(project_id: UUID, db: Session):
+    return db.scalar(
+        select(func.count())
+        .select_from(Invoice)
+        .where(Invoice.projectAssociatedTo == project_id)
+    )

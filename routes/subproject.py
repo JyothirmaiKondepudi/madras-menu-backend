@@ -107,6 +107,12 @@ def delete_subproject(
     db: Session = Depends(get_db),
     sub_project: Subproject = Depends(load_subproject_in_org),
 ):
+    invoice_count = get_invoice_count_for_sub_project(subproject_id, db)
+    if invoice_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This sub project has {invoice_count} invoices. Please delete them first.",
+        )
     deleted_subproject = delete_subproject_by_subproject_id(subproject_id, db)
     if deleted_subproject is None:
         raise HTTPException(status_code=404, detail="subproject not found")

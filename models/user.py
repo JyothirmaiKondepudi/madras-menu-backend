@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, func
+from sqlalchemy import Column, String, DateTime, ForeignKey, func, Boolean, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -26,6 +26,9 @@ class User(Base):
     )
     userCreatedAt = Column(
         "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    userDisabled = Column(
+        "user_disabled", Boolean, nullable=False, server_default=text("false")
     )
     updatedAt = Column(
         "updated_at",

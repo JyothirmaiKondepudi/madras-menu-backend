@@ -21,7 +21,7 @@ class InvoiceOut(BaseModel):
     project: ProjectOut
     createdAt: datetime
     updatedAt: datetime
-
+    invoiceDeletedAt: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -42,7 +42,11 @@ class InvoiceUpdate(BaseModel):
         Literal["Generated", "Assigned", "Pending", "Accepted", "Paid", "Declined"]
         | None
     ) = None
-    totalAmount: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
-    depositPercentage: Decimal | None = Field(default=None, gt=0, le=100, max_digits=5, decimal_places=2)
+    totalAmount: Decimal | None = Field(
+        default=None, gt=0, max_digits=12, decimal_places=2
+    )
+    depositPercentage: Decimal | None = Field(
+        default=None, gt=0, le=100, max_digits=5, decimal_places=2
+    )
     invoiceAssignedTo: UUID | None = None
     subprojectId: UUID | None = None

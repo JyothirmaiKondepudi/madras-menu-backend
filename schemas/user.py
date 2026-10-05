@@ -9,6 +9,7 @@ class UserOut(BaseModel):
     userEmail: str
     userPhoneNumber: str
     preferredContact: str
+    userDisabled: bool
     userAddress: str | None = None
     userRole: Literal["client", "vendor", "platform_admin"]
     userOrg: UUID

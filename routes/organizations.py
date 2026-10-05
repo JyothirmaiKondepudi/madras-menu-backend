@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Organization, User
+from models import User
 from schemas.organizations import (
     OrganizationOut,
     OrganizationCreate,
@@ -16,11 +16,12 @@ from services.organizations import (
     create_new_org,
     get_org_info_by_id,
     update_org_info_by_id,
+    get_user_count,
     delete_org_by_org_id,
+    get_project_count,
 )
 from auth.dependencies import (
     get_current_user,
-    user_project_ids,
     require_permission,
     user_has_permission,
 )
@@ -108,6 +109,18 @@ def update_org_info(
     dependencies=[Depends(require_permission("org:delete"))],
 )
 def delete_user(org_id: UUID, db: Session = Depends(get_db)):
+    user_count = get_user_count(org_id, db)
+    if user_count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This organization has {user_count} users associated to it. Please delete them first.",
+        )
+    project_count = get_project_count(org_id, db)
+    if project_count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This organization has {project_count} projects associated to it. Please delete them first.",
+        )
     deleted_user = delete_org_by_org_id(org_id, db)
     if deleted_user is None:
         raise HTTPException(status_code=404, detail="Org not found")

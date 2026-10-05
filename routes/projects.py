@@ -167,6 +167,18 @@ def delete_project(
     db: Session = Depends(get_db),
     project: Project = Depends(load_project_in_org),
 ):
+    sub_projects = get_sub_project_count(project_id, db)
+    if sub_projects > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This project has {sub_projects} sub projects. Please delete them first.",
+        )
+    invoice_count = get_invoice_count(project_id, db)
+    if invoice_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This project has {invoice_count} invoices. Please delete them first.",
+        )
     deleted_project = delete_Project_by_Project_id(project_id, db)
     if deleted_project is None:
         raise HTTPException(status_code=404, detail="project not found")

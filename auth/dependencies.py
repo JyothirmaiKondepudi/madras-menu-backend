@@ -33,6 +33,8 @@ def get_current_user(
     user = db.get(User, user_id)
     if user is None:
         raise _UNAUTHORIZED
+    if user.userDisabled:
+        raise HTTPException(status_code=401, detail="User disabled")
     request.state.user_id = user.userId
     request.state.org_id = user.userOrg
     return user

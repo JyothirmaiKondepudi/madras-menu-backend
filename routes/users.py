@@ -92,6 +92,43 @@ def update_user(
     return updated_user
 
 
+@router.post(
+    "/users/{user_id}/disable",
+    response_model=UserOut,
+    dependencies=[Depends(require_permission("user:disable"))],
+)
+def disable_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user: User = Depends(load_user_in_org),
+):
+    if current_user.userId == user_id:
+        raise HTTPException(
+            status_code=400, detail="You can't disable your own account."
+        )
+    updated_user = disable_user_by_id(user_id, db)
+    if updated_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated_user
+
+
+@router.post(
+    "/users/{user_id}/enable",
+    response_model=UserOut,
+    dependencies=[Depends(require_permission("user:disable"))],
+)
+def enable_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(load_user_in_org),
+):
+    updated_user = enable_user_by_id(user_id, db)
+    if updated_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated_user
+
+
 @router.delete(
     "/users/{user_id}",
     status_code=204,
@@ -100,6 +137,18 @@ def update_user(
 def delete_user(
     user_id: UUID, db: Session = Depends(get_db), user: User = Depends(load_user_in_org)
 ):
+    project_count = get_project_count_for_user(user_id, db)
+    if project_count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This user is the venodr on {project_count} projects. Please disable the user instead.",
+        )
+    pending_invoice_count = get_invoice_for_user(user_id, db)
+    if pending_invoice_count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This user has {pending_invoice_count} invoices. Please disable the user instead.",
+        )
     deleted_user = delete_user_by_user_id(user_id, db)
     if deleted_user is None:
         raise HTTPException(status_code=404, detail="User not found")

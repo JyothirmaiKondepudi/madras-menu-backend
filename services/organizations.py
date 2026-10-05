@@ -1,7 +1,5 @@
-from models import Organization
+from models import Organization, User, Project
 from sqlalchemy import select, func
-from sqlalchemy.orm import Session
-from schemas.organizations import OrganizationOut
 
 
 def get_organizations(db):
@@ -60,3 +58,17 @@ def delete_org_by_org_id(org_id, db):
     db.delete(org)
     db.commit()
     return org
+
+
+def get_user_count(org_id, db):
+    return db.scalar(
+        select(func.count()).select_from(User).where(User.userOrg == org_id)
+    )
+
+
+def get_project_count(org_id, db):
+    return db.scalar(
+        select(func.count())
+        .select_from(Project)
+        .where(Project.organizationId == org_id)
+    )

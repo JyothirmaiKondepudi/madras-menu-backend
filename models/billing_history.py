@@ -2,15 +2,12 @@ from sqlalchemy import (
     Column,
     String,
     DateTime,
-    Integer,
     Enum,
     ForeignKey,
-    ARRAY,
     Numeric,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
 import uuid
 from database import Base
 
@@ -34,6 +31,8 @@ class BillingHistory(Base):
     occurredAt = Column(
         "occurred_at", DateTime(timezone=True), server_default=func.now(), nullable=True
     )
+    voidedAt = Column("voided_at", DateTime(timezone=True), nullable=True)
+    voidedReason = Column("voided_reason", String, nullable=True)
     source = Column(
         "source", Enum("Manual", "Stripe", name="source_enum"), nullable=False
     )

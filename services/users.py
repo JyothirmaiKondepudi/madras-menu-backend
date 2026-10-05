@@ -1,4 +1,4 @@
-from models import User
+from models import User, Project, Invoice
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from schemas.user import UserUpdate
@@ -100,4 +100,40 @@ def delete_user_by_user_id(user_id, db: Session):
 
     db.delete(user)
     db.commit()
+    return user
+
+
+def get_project_count_for_user(user_id, db):
+    return db.scalar(
+        select(func.count())
+        .select_from(Project)
+        .where(Project.vendorOnProject == user_id)
+    )
+
+
+def get_invoice_for_user(user_id, db):
+    return db.scalar(
+        select(func.count())
+        .select_from(Invoice)
+        .where(Invoice.invoiceAssignedTo == user_id)
+    )
+
+
+def disable_user_by_id(user_id, db):
+    user = db.get(User, user_id)
+    if user is None:
+        return None
+    user.userDisabled = True
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def enable_user_by_id(user_id, db):
+    user = db.get(User, user_id)
+    if user is None:
+        return None
+    user.userDisabled = False
+    db.commit()
+    db.refresh(user)
     return user

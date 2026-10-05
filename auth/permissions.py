@@ -5,6 +5,7 @@ PERMISSIONS = [
     ("user:view_all", "View any user's profile, not just your own"),
     ("user:create", "Create a new user account"),
     ("user:update", "Edit any user account"),
+    ("user:disable", "Disable or re-enable a user account"),
     ("user:delete", "Delete a user account"),
     ("user:grant_platform_admin", "Create users with the platform_admin role"),
     ("project:view_all", "View any project, not just ones you're linked to"),

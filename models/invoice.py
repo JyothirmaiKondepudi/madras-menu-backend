@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Enum, ForeignKey, Numeric, DateTime, func
+from sqlalchemy import Column, Enum, ForeignKey, Numeric, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -35,6 +35,11 @@ class Invoice(Base):
         ForeignKey("user_data.user_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
+    )
+    invoiceDeletedAt = Column(
+        "invoice_deleted_at",
+        DateTime(timezone=True),
+        nullable=True,
     )
     # A project can have many invoices (deposit, balance, add-ons).
     projectAssociatedTo = Column(
