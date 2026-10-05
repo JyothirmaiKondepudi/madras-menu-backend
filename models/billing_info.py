@@ -1,8 +1,17 @@
-from sqlalchemy import Column, String, DateTime, Integer, Enum, ForeignKey, ARRAY, Numeric
+from sqlalchemy import (
+    Column,
+    String,
+    DateTime,
+    Integer,
+    Enum,
+    ForeignKey,
+    ARRAY,
+    Numeric,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 import uuid
-from datetime import datetime
 from database import Base
 
 
@@ -31,4 +40,4 @@ class BillingInfo(Base):
         ),
         nullable=False,
     )
-    lastEventAt = Column("last_event_at", DateTime, nullable=False)
+    lastEventAt = Column("last_event_at", DateTime(timezone=True), nullable=False)

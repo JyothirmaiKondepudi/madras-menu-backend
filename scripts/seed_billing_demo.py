@@ -13,6 +13,7 @@ Refuses to run twice.
 import os
 import sys
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,6 +25,9 @@ from models import BillingHistory, BillingInfo, Invoice, Organization, Project, 
 from services.billing_history import record_payment  # noqa: E402
 from services.invoices import compute_invoice_amount  # noqa: E402
 
+# demo orgs use the default org timezone, so event times are local to it
+EASTERN = ZoneInfo("America/New_York")
+
 # project -> payments (in dollars) for its existing reception invoice and the new mehendi invoice
 PLAN = {
     "Sharma Wedding": {"reception": [Decimal("1000.00")], "mehendi": [Decimal("1500.00")]},  # partial, paid in full
@@ -34,7 +38,7 @@ PLAN = {
 def _add_mehendi(db, project):
     subproject = Subproject(
         subprojectName=f"{project.projectName}: mehendi", projectAssociatedTo=project.projectId,
-        cuisine=["North Indian"], religion="Hindu", subprojectDate=datetime(2026, 12, 4, 18),
+        cuisine=["North Indian"], religion="Hindu", subprojectDate=datetime(2026, 12, 4, 18, tzinfo=EASTERN),
         guestCount=60, subprojectType="Live Stations", subprojectVenue="Home", subprojectEvent="mehendi",
     )
     db.add(subproject)

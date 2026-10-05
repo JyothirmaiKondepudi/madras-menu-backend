@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Enum, ForeignKey, Numeric
+from sqlalchemy import Column, String, Enum, ForeignKey, Numeric, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -51,6 +51,14 @@ class Invoice(Base):
         ForeignKey("subprojects.subproject_id"),
         nullable=True,
         index=True,
+    )
+    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updatedAt = Column(
+        "updated_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
     # invoiceAmount is computed from these two (see services/invoices.py).
     # Nullable: invoices created before deposits existed have neither.

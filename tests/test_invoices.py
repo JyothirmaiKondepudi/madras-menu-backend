@@ -335,3 +335,20 @@ def test_updating_deposit_percentage_recomputes_amount(client, test_user, test_p
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["invoiceAmount"] == "4000.00"
+
+
+def test_invoice_audit_timestamps(client, test_user, test_project, vendor_auth_headers):
+    from datetime import datetime
+
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=vendor_auth_headers
+    ).json()
+    created_at = datetime.fromisoformat(created["createdAt"])
+    assert created_at.tzinfo is not None
+
+    resp = client.patch(
+        f"/invoices/{created['invoiceId']}", json={"invoiceStatus": "Assigned"}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert datetime.fromisoformat(resp.json()["createdAt"]) == created_at
+    assert datetime.fromisoformat(resp.json()["updatedAt"]) > datetime.fromisoformat(created["updatedAt"])

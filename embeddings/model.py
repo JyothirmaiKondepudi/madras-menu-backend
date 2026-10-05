@@ -43,4 +43,4 @@ class MenuItemEmbedding(Base):
     # search result can be traced back to what was actually embedded.
     embeddedText = Column("embedded_text", String, nullable=False)
 
-    createdAt = Column("created_at", DateTime, server_default=func.now(), nullable=False)
+    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)

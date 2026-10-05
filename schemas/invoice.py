@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
@@ -18,6 +19,8 @@ class InvoiceOut(BaseModel):
     projectAssociatedTo: UUID
     subprojectId: UUID | None = None
     project: ProjectOut
+    createdAt: datetime
+    updatedAt: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

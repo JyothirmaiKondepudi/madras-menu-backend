@@ -1,9 +1,9 @@
-from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, Table, Index
+from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, Table, Index, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from datetime import datetime
 import uuid
 from database import Base
+from services.timezones import effective_timezone, to_local
 
 
 class Project(Base):
@@ -29,8 +29,8 @@ class Project(Base):
             name="project_status_enum",
         ),
     )
-    projectStartDate = Column("project_start_date", DateTime, default=datetime.now)
-    projectEndDate = Column("project_end_date", DateTime, default=datetime.now)
+    projectStartDate = Column("project_start_date", DateTime(timezone=True), nullable=True)
+    projectEndDate = Column("project_end_date", DateTime(timezone=True), nullable=True)
     vendorOnProject = Column(
         "vendor_on_project",
         UUID(as_uuid=True),
@@ -56,6 +56,16 @@ class Project(Base):
         nullable=True,
         index=True,
     )
+    # IANA name of the venue's timezone when it differs from the org's; null = use the org's
+    projectTimezone = Column("project_timezone", String, nullable=True)
+    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updatedAt = Column(
+        "updated_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     vendor = relationship("User", foreign_keys=[vendorOnProject])
     # A project's clients. user_projects is the only record of who they are
@@ -63,6 +73,18 @@ class Project(Base):
     users = relationship("User", secondary="user_projects", back_populates="projects")
     finalInvoice = relationship("Invoice", foreign_keys=[finalInvoiceId])
     organization = relationship("Organization", foreign_keys=[organizationId])
+
+    @property
+    def effectiveTimezone(self) -> str:
+        return effective_timezone(self)
+
+    @property
+    def localStartDate(self):
+        return to_local(self.projectStartDate, self.effectiveTimezone)
+
+    @property
+    def localEndDate(self):
+        return to_local(self.projectEndDate, self.effectiveTimezone)
 
 
 user_projects = Table(

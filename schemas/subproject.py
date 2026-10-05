@@ -43,6 +43,11 @@ class SubprojectOut(BaseModel):
     minPricePerPerson: Decimal | None = None
     maxPricePerPerson: Decimal | None = None
     project: ProjectOut
+    effectiveTimezone: str
+    # subprojectDate shown in the venue's timezone
+    localSubprojectDate: datetime
+    createdAt: datetime
+    updatedAt: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

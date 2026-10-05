@@ -14,6 +14,7 @@ import getpass
 import os
 import sys
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,6 +24,9 @@ from auth.security import hash_password  # noqa: E402
 from database import SessionLocal  # noqa: E402
 from models import Invoice, Organization, Project, Subproject, User  # noqa: E402
 from services.invoices import compute_invoice_amount  # noqa: E402
+
+# demo orgs use the default org timezone, so event times are local to it
+EASTERN = ZoneInfo("America/New_York")
 
 ORG_B_VENDOR_EMAIL = "vendor.b@spiceroute.example"
 
@@ -41,7 +45,7 @@ def _project_tree(db, org_id, vendor, client, name):
     """A project with the client linked, one subproject and one invoice."""
     project = Project(
         projectName=name, projectStatus="Proposal",
-        projectStartDate=datetime(2026, 12, 5, 18), projectEndDate=datetime(2026, 12, 5, 23),
+        projectStartDate=datetime(2026, 12, 5, 18, tzinfo=EASTERN), projectEndDate=datetime(2026, 12, 5, 23, tzinfo=EASTERN),
         vendorOnProject=vendor.userId, organizationId=org_id,
     )
     project.users.append(client)
@@ -50,7 +54,7 @@ def _project_tree(db, org_id, vendor, client, name):
 
     subproject = Subproject(
         subprojectName=f"{name}: reception", projectAssociatedTo=project.projectId,
-        cuisine=["South Indian"], religion="Hindu", subprojectDate=datetime(2026, 12, 5, 19),
+        cuisine=["South Indian"], religion="Hindu", subprojectDate=datetime(2026, 12, 5, 19, tzinfo=EASTERN),
         guestCount=120, subprojectType="Buffet", subprojectVenue="Hotel",
         subprojectEvent="Wedding Dinner",
     )
