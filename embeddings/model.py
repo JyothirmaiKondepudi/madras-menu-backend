@@ -21,7 +21,10 @@ class MenuItemEmbedding(Base):
 
     # One embedding per dish; item_id as PK makes regeneration a plain upsert.
     itemId = Column(
-        "item_id", UUID(as_uuid=True), ForeignKey("menu_items.id"), primary_key=True
+        "item_id",
+        UUID(as_uuid=True),
+        ForeignKey("menu_items.id", ondelete="CASCADE"),
+        primary_key=True,
     )
 
     # 768 dims for Ollama's nomic-embed-text; change if the model changes.

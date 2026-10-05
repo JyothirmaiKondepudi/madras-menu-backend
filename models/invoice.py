@@ -32,7 +32,7 @@ class Invoice(Base):
     invoiceAssignedTo = Column(
         "invoice_assigned_to",
         UUID(as_uuid=True),
-        ForeignKey("user_data.user_id"),
+        ForeignKey("user_data.user_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -40,7 +40,7 @@ class Invoice(Base):
     projectAssociatedTo = Column(
         "project_associated_to",
         UUID(as_uuid=True),
-        ForeignKey("projects.project_id"),
+        ForeignKey("projects.project_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -48,11 +48,13 @@ class Invoice(Base):
     subprojectId = Column(
         "subproject_id",
         UUID(as_uuid=True),
-        ForeignKey("subprojects.subproject_id"),
+        ForeignKey("subprojects.subproject_id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )
-    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
+    createdAt = Column(
+        "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updatedAt = Column(
         "updated_at",
         DateTime(timezone=True),

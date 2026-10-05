@@ -46,7 +46,7 @@ class Subproject(Base):
     projectAssociatedTo = Column(
         "project_associated_to",
         UUID(as_uuid=True),
-        ForeignKey("projects.project_id"),
+        ForeignKey("projects.project_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -57,7 +57,9 @@ class Subproject(Base):
     subprojectType = Column("subproject_type", String, nullable=False)
     subprojectVenue = Column("venue", String, nullable=False)
     subprojectEvent = Column("subproject_event", String, nullable=False)
-    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
+    createdAt = Column(
+        "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updatedAt = Column(
         "updated_at",
         DateTime(timezone=True),

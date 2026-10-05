@@ -22,7 +22,7 @@ class BillingInfo(Base):
     subprojectId = Column(
         "subproject_id",
         UUID(as_uuid=True),
-        ForeignKey("subprojects.subproject_id"),
+        ForeignKey("subprojects.subproject_id", ondelete="RESTRICT"),
         primary_key=True,
     )
     totalInvoiced = Column("total_invoiced", Numeric(12, 2))

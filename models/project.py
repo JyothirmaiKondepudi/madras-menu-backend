@@ -29,19 +29,21 @@ class Project(Base):
             name="project_status_enum",
         ),
     )
-    projectStartDate = Column("project_start_date", DateTime(timezone=True), nullable=True)
+    projectStartDate = Column(
+        "project_start_date", DateTime(timezone=True), nullable=True
+    )
     projectEndDate = Column("project_end_date", DateTime(timezone=True), nullable=True)
     vendorOnProject = Column(
         "vendor_on_project",
         UUID(as_uuid=True),
-        ForeignKey("user_data.user_id"),
+        ForeignKey("user_data.user_id", ondelete="RESTRICT"),
         index=True,
     )
     # The tenant this project belongs to
     organizationId = Column(
         "organization_id",
         UUID(as_uuid=True),
-        ForeignKey("organizations.org_id"),
+        ForeignKey("organizations.org_id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -51,14 +53,19 @@ class Project(Base):
         "final_invoice_id",
         UUID(as_uuid=True),
         ForeignKey(
-            "invoices.invoice_id", use_alter=True, name="fk_projects_final_invoice_id"
+            "invoices.invoice_id",
+            use_alter=True,
+            ondelete="SET NULL",
+            name="fk_projects_final_invoice_id",
         ),
         nullable=True,
         index=True,
     )
     # IANA name of the venue's timezone when it differs from the org's; null = use the org's
     projectTimezone = Column("project_timezone", String, nullable=True)
-    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
+    createdAt = Column(
+        "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updatedAt = Column(
         "updated_at",
         DateTime(timezone=True),

@@ -49,4 +49,6 @@ class Notification(Base):
     )
     seenAt = Column("seen_at", DateTime(timezone=True), nullable=True)
     readAt = Column("read_at", DateTime(timezone=True), nullable=True)
-    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
+    createdAt = Column(
+        "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

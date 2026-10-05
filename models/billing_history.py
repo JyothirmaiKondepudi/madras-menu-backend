@@ -23,7 +23,7 @@ class BillingHistory(Base):
     invoiceId = Column(
         "invoice_id",
         UUID(as_uuid=True),
-        ForeignKey("invoices.invoice_id"),
+        ForeignKey("invoices.invoice_id", ondelete="RESTRICT"),
         index=True,
         nullable=False,
     )
@@ -31,7 +31,9 @@ class BillingHistory(Base):
     eventType = Column("event_type", String, nullable=False)
     # dollars, same unit as invoices (was integer cents)
     amount = Column("amount", Numeric(12, 2), nullable=False)
-    occurredAt = Column("occurred_at", DateTime(timezone=True), server_default=func.now(), nullable=True)
+    occurredAt = Column(
+        "occurred_at", DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
     source = Column(
         "source", Enum("Manual", "Stripe", name="source_enum"), nullable=False
     )

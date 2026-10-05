@@ -18,7 +18,7 @@ class AccountActivity(Base):
     projectId = Column(
         "project_id",
         UUID(as_uuid=True),
-        ForeignKey("projects.project_id", ondelete="CASCADE"),
+        ForeignKey("projects.project_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -26,7 +26,7 @@ class AccountActivity(Base):
     subprojectId = Column(
         "subproject_id",
         UUID(as_uuid=True),
-        ForeignKey("subprojects.subproject_id", ondelete="CASCADE"),
+        ForeignKey("subprojects.subproject_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -37,7 +37,7 @@ class AccountActivity(Base):
     actorId = Column(
         "actor_id",
         UUID(as_uuid=True),
-        ForeignKey("user_data.user_id", ondelete="CASCADE"),
+        ForeignKey("user_data.user_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )

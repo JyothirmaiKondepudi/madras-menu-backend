@@ -21,10 +21,12 @@ class User(Base):
     createdBy = Column(
         "created_by",
         UUID(as_uuid=True),
-        ForeignKey("user_data.user_id"),
+        ForeignKey("user_data.user_id", ondelete="SET NULL"),
         nullable=True,
     )
-    userCreatedAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
+    userCreatedAt = Column(
+        "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updatedAt = Column(
         "updated_at",
         DateTime(timezone=True),
@@ -37,7 +39,9 @@ class User(Base):
     userOrg = Column(
         "user_org",
         UUID(as_uuid=True),
-        ForeignKey("organizations.org_id", name="fk_user_data_user_org"),
+        ForeignKey(
+            "organizations.org_id", name="fk_user_data_user_org", ondelete="RESTRICT"
+        ),
         nullable=False,
         index=True,
     )
