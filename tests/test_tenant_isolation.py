@@ -21,7 +21,7 @@ def _subproject_body(project_id):
         "guestCount": 80,
         "subprojectType": "Buffet",
         "subprojectVenue": "Hotel",
-        "subprojectEvent": "mehendi",
+        "subprojectEvent": "Mehendi",
     }
 
 

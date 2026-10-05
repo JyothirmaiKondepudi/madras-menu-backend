@@ -1,3 +1,8 @@
+import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
+
 def _subproject_body(project_id):
     return {
         "subprojectName": "Wedding Reception Dinner",
@@ -85,3 +90,33 @@ def test_client_only_sees_subprojects_for_linked_projects(client, test_project, 
     )
     resp = client.get("/subprojects", headers={"Authorization": f"Bearer {token}"})
     assert len(resp.json()) == 1
+
+
+def test_corrected_choice_values_are_accepted(client, test_project, vendor_auth_headers):
+    body = _subproject_body(test_project["projectId"])
+    body.update(subprojectVenue="Museum", subprojectEvent="Cocktail Hour")
+    resp = client.post("/subprojects", json=body, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["subprojectVenue"] == "Museum"
+    assert resp.json()["subprojectEvent"] == "Cocktail Hour"
+
+
+def test_old_misspelled_choice_values_are_rejected(client, test_project, vendor_auth_headers):
+    for field, old_value in [("subprojectVenue", "Mueseum"), ("subprojectEvent", "cockatail hour")]:
+        body = _subproject_body(test_project["projectId"])
+        body[field] = old_value
+        resp = client.post("/subprojects", json=body, headers=vendor_auth_headers)
+        assert resp.status_code == 422, (field, resp.text)
+
+
+def test_database_rejects_values_outside_the_choices(engine, client, test_project, vendor_auth_headers):
+    # the CHECK constraint is the backstop for anything that skips the schemas
+    created = client.post(
+        "/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers
+    ).json()
+    with pytest.raises(IntegrityError, match="subprojects_venue_check"):
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE subprojects SET venue = 'Mueseum' WHERE subproject_id = :id"),
+                {"id": created["subprojectId"]},
+            )

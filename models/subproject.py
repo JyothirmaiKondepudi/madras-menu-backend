@@ -3,7 +3,7 @@ from sqlalchemy import (
     String,
     DateTime,
     Integer,
-    Enum,
+    CheckConstraint,
     ForeignKey,
     func,
     ARRAY,
@@ -13,11 +13,27 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
 from database import Base
+from models.choices import EventType, Religion, ServiceStyle, Venue, check_in
 from services.timezones import to_local
 
 
 class Subproject(Base):
     __tablename__ = "subprojects"
+    __table_args__ = (
+        # value lists live in models/choices.py; see there for how to change one
+        CheckConstraint(
+            check_in("religion", Religion), name="subprojects_religion_check"
+        ),
+        CheckConstraint(
+            check_in("subproject_type", ServiceStyle),
+            name="subprojects_subproject_type_check",
+        ),
+        CheckConstraint(check_in("venue", Venue), name="subprojects_venue_check"),
+        CheckConstraint(
+            check_in("subproject_event", EventType),
+            name="subprojects_subproject_event_check",
+        ),
+    )
 
     subprojectId = Column(
         "subproject_id",
@@ -35,60 +51,12 @@ class Subproject(Base):
         index=True,
     )
     cuisine = Column("cuisine", ARRAY(String))
-    religion = Column(
-        "religion", Enum("Hindu", "Muslim", "Christian", name="religion_enum")
-    )
+    religion = Column("religion", String)
     subprojectDate = Column("subproject_date", DateTime(timezone=True), nullable=False)
     guestCount = Column("guest_count", Integer, nullable=False)
-    subprojectType = Column(
-        "subproject_type",
-        Enum(
-            "Buffet",
-            "Plated",
-            "Family Style",
-            "Live Stations",
-            "Butler Passed",
-            name="subproject_type_enum",
-        ),
-        nullable=False,
-    )
-    subprojectVenue = Column(
-        "venue",
-        Enum(
-            "Hotel",
-            "Country Club",
-            "Mueseum",
-            "Party Hall",
-            "Home",
-            "Outdoor",
-            name="venue_enum",
-        ),
-        nullable=False,
-    )
-    subprojectEvent = Column(
-        "subproject_event",
-        Enum(
-            "breakfast",
-            "wedding Lunch",
-            "Wedding Dinner",
-            "Anniversary",
-            "birthday",
-            "cockatail hour",
-            "mehendi",
-            "haldi",
-            "ceremony refreshments",
-            "vidai",
-            "welcome dinner",
-            "welcome lunch",
-            "baarat",
-            "Walima",
-            "Graduation",
-            "house Warming",
-            "High tea",
-            name="event_enum",
-        ),
-        nullable=False,
-    )
+    subprojectType = Column("subproject_type", String, nullable=False)
+    subprojectVenue = Column("venue", String, nullable=False)
+    subprojectEvent = Column("subproject_event", String, nullable=False)
     createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
     updatedAt = Column(
         "updated_at",

@@ -39,7 +39,7 @@ def _add_mehendi(db, project):
     subproject = Subproject(
         subprojectName=f"{project.projectName}: mehendi", projectAssociatedTo=project.projectId,
         cuisine=["North Indian"], religion="Hindu", subprojectDate=datetime(2026, 12, 4, 18, tzinfo=EASTERN),
-        guestCount=60, subprojectType="Live Stations", subprojectVenue="Home", subprojectEvent="mehendi",
+        guestCount=60, subprojectType="Live Stations", subprojectVenue="Home", subprojectEvent="Mehendi",
     )
     db.add(subproject)
     db.flush()
