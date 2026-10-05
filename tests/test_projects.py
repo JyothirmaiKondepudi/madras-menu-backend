@@ -263,3 +263,18 @@ def test_deleting_project_with_clients(client, test_project, vendor_auth_headers
     # user_projects links cascade, so they never block the delete
     resp = client.delete(f"/projects/{test_project['projectId']}", headers=vendor_auth_headers)
     assert resp.status_code == 204
+
+
+def test_project_audit_timestamps(client, test_project, vendor_auth_headers):
+    from datetime import datetime
+
+    created = datetime.fromisoformat(test_project["createdAt"])
+    updated = datetime.fromisoformat(test_project["updatedAt"])
+    assert created.tzinfo is not None and updated.tzinfo is not None
+
+    resp = client.patch(
+        f"/projects/{test_project['projectId']}", json={"projectName": "Renamed"}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert datetime.fromisoformat(resp.json()["createdAt"]) == created
+    assert datetime.fromisoformat(resp.json()["updatedAt"]) > updated

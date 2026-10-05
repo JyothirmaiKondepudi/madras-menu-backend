@@ -1,7 +1,6 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from datetime import datetime
 import uuid
 from database import Base
 
@@ -25,9 +24,13 @@ class User(Base):
         ForeignKey("user_data.user_id"),
         nullable=True,
     )
-    userCreatedAt = Column("created_at", DateTime, default=datetime.now)
+    userCreatedAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
     updatedAt = Column(
-        "updated_at", DateTime, default=datetime.now, onupdate=datetime.now
+        "updated_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
     # Every user (vendor or client) belongs to exactly one org; new users
     # inherit their creator's. The first org + vendor come from scripts/seed_dev.py.

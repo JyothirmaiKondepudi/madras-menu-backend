@@ -1,9 +1,10 @@
-from models import Project, User, user_projects
+from models import Organization, Project, User, user_projects
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from schemas.project import ProjectUpdate
 from services.account_activity import record_activity
 from services.notifications import create_notification
+from services.timezones import effective_timezone, to_instant
 
 
 def get_all_projects(organization_id, db: Session):
@@ -24,14 +25,16 @@ def get_project_by_id(project_id, db: Session):
 
 
 def add_new_Project(newProject, db: Session, organization_id=None, actor_id=None):
-
+    # times without an offset are local to the venue: the project's timezone, else the org's
+    timezone = newProject.projectTimezone or db.get(Organization, organization_id).orgTimezone
     created_Project = Project(
         projectName=newProject.projectName,
         projectStatus=newProject.projectStatus,
-        projectStartDate=newProject.projectStartDate,
-        projectEndDate=newProject.projectEndDate,
+        projectStartDate=to_instant(newProject.projectStartDate, timezone),
+        projectEndDate=to_instant(newProject.projectEndDate, timezone),
         vendorOnProject=newProject.vendorOnProject,
         organizationId=organization_id,
+        projectTimezone=newProject.projectTimezone,
     )
     db.add(created_Project)
     db.commit()
@@ -51,7 +54,14 @@ def update_project_by_project_id(project_id, updates: ProjectUpdate, db: Session
     if project is None:
         return None
 
-    for field, value in updates.model_dump(exclude_unset=True).items():
+    changes = updates.model_dump(exclude_unset=True)
+    # apply a timezone change first, so dates in the same request are read in it
+    if "projectTimezone" in changes:
+        project.projectTimezone = changes.pop("projectTimezone")
+    for field in ("projectStartDate", "projectEndDate"):
+        if field in changes:
+            changes[field] = to_instant(changes[field], effective_timezone(project))
+    for field, value in changes.items():
         setattr(project, field, value)
 
     db.commit()

@@ -24,6 +24,7 @@ def create_new_org(new_org, db):
         orgName=new_org.orgName,
         orgEmail=new_org.orgEmail,
         orgDisabled=new_org.orgDisabled,
+        **({"orgTimezone": new_org.orgTimezone} if new_org.orgTimezone else {}),
     )
 
     db.add(created_org)

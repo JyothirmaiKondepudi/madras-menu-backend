@@ -2,6 +2,7 @@ from models import Project, Subproject
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 from services.account_activity import record_activity
+from services.timezones import effective_timezone, to_instant
 
 # shared by every query that returns a SubprojectOut, since it now nests
 # project -> client / vendor
@@ -26,12 +27,14 @@ def get_subproject_by_subproject_id(subproject_id, db: Session):
     return db.get(Subproject, subproject_id, options=[_WITH_PROJECT_AND_USERS])
 
 def add_new_subproject(new_subproject, db: Session, actor_id=None):
+    # a time without an offset is local to the venue (the project's effective timezone)
+    project = db.get(Project, new_subproject.projectAssociatedTo)
     created_subproject = Subproject(
         subprojectName=new_subproject.subprojectName,
         projectAssociatedTo=new_subproject.projectAssociatedTo,
         cuisine=new_subproject.cuisine,
         religion=new_subproject.religion,
-        subprojectDate=new_subproject.subprojectDate,
+        subprojectDate=to_instant(new_subproject.subprojectDate, effective_timezone(project)),
         guestCount=new_subproject.guestCount,
         subprojectType=new_subproject.subprojectType,
         subprojectVenue=new_subproject.subprojectVenue,
@@ -57,7 +60,10 @@ def update_subproject_by_subproject_id(subproject_id, updates, db: Session):
     if subproject is None:
         return None
 
-    for field, value in updates.model_dump(exclude_unset=True).items():
+    changes = updates.model_dump(exclude_unset=True)
+    if "subprojectDate" in changes:
+        changes["subprojectDate"] = to_instant(changes["subprojectDate"], subproject.effectiveTimezone)
+    for field, value in changes.items():
         setattr(subproject, field, value)
 
     db.commit()

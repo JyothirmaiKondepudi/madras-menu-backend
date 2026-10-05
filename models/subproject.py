@@ -1,8 +1,19 @@
-from sqlalchemy import Column, String, DateTime, Integer, Enum, ForeignKey, ARRAY, Numeric
+from sqlalchemy import (
+    Column,
+    String,
+    DateTime,
+    Integer,
+    Enum,
+    ForeignKey,
+    func,
+    ARRAY,
+    Numeric,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
 from database import Base
+from services.timezones import to_local
 
 
 class Subproject(Base):
@@ -27,7 +38,7 @@ class Subproject(Base):
     religion = Column(
         "religion", Enum("Hindu", "Muslim", "Christian", name="religion_enum")
     )
-    subprojectDate = Column("subproject_date", DateTime, nullable=False)
+    subprojectDate = Column("subproject_date", DateTime(timezone=True), nullable=False)
     guestCount = Column("guest_count", Integer, nullable=False)
     subprojectType = Column(
         "subproject_type",
@@ -78,7 +89,23 @@ class Subproject(Base):
         ),
         nullable=False,
     )
+    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updatedAt = Column(
+        "updated_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
     minPricePerPerson = Column("min_price_per_person", Numeric(12, 2))
     maxPricePerPerson = Column("max_price_per_person", Numeric(12, 2))
 
     project = relationship("Project")
+
+    @property
+    def effectiveTimezone(self) -> str:
+        return self.project.effectiveTimezone
+
+    @property
+    def localSubprojectDate(self):
+        return to_local(self.subprojectDate, self.effectiveTimezone)

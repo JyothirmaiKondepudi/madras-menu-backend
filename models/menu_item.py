@@ -9,7 +9,6 @@ from sqlalchemy import (
     func,
     text,
 )
-from datetime import datetime
 import uuid
 from database import Base
 
@@ -60,17 +59,11 @@ class MenuItem(Base):
     )
     confidence = Column("confidence", String)
     sourceDocs = Column("source_docs", ARRAY(String), server_default=text("'{}'"))
-    createdAt = Column(
-        "created_at",
-        DateTime,
-        default=datetime.now,
-        server_default=func.now(),
-        nullable=False,
-    )
+    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)
     updatedAt = Column(
         "updated_at",
-        DateTime,
-        default=datetime.now,
-        onupdate=datetime.now,
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )

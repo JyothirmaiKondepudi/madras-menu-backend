@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 import uuid
 from database import Base
@@ -41,6 +41,6 @@ class AccountActivity(Base):
         nullable=True,
         index=True,
     )
-    occurredAt = Column("occurred_at", DateTime, nullable=False)
+    occurredAt = Column("occurred_at", DateTime(timezone=True), nullable=False)
     # "metadata" is reserved by SQLAlchemy.
     activityMetadata = Column("metadata", JSONB)

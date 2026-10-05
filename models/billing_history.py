@@ -1,8 +1,17 @@
-from sqlalchemy import Column, String, DateTime, Integer, Enum, ForeignKey, ARRAY, Numeric
+from sqlalchemy import (
+    Column,
+    String,
+    DateTime,
+    Integer,
+    Enum,
+    ForeignKey,
+    ARRAY,
+    Numeric,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 import uuid
-from datetime import datetime
 from database import Base
 
 
@@ -22,7 +31,7 @@ class BillingHistory(Base):
     eventType = Column("event_type", String, nullable=False)
     # dollars, same unit as invoices (was integer cents)
     amount = Column("amount", Numeric(12, 2), nullable=False)
-    occurredAt = Column("occurred_at", DateTime, default=datetime.now)
+    occurredAt = Column("occurred_at", DateTime(timezone=True), server_default=func.now(), nullable=True)
     source = Column(
         "source", Enum("Manual", "Stripe", name="source_enum"), nullable=False
     )

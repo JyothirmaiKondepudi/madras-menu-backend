@@ -1,6 +1,5 @@
 from sqlalchemy import Column, String, DateTime, Index, ForeignKey, text, func
 from sqlalchemy.dialects.postgresql import JSONB
-from datetime import datetime
 import uuid
 from database import Base
 
@@ -33,10 +32,4 @@ class ItemRelationship(Base):
     )
     relationshipType = Column("relationship_type", String, nullable=False)
     relationshipMetadata = Column("metadata", JSONB)
-    createdAt = Column(
-        "created_at",
-        DateTime,
-        default=datetime.now,
-        server_default=func.now(),
-        nullable=False,
-    )
+    createdAt = Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -1,5 +1,5 @@
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from typing import Literal
 from uuid import UUID
 from datetime import datetime
@@ -25,5 +25,6 @@ class PaymentCreate(BaseModel):
     not this endpoint."""
     invoiceId: UUID
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2, description="Payment amount in dollars")
-    occurredAt: datetime | None = None
+    # must include a timezone offset
+    occurredAt: AwareDatetime | None = None
     billingMetadata: dict | None = None
