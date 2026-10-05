@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from uuid import UUID
 from services.menu_items import *
 from fastapi import APIRouter, Depends, HTTPException
 from models import User
@@ -13,32 +14,55 @@ router = APIRouter()
 # user directory are. Writes: vendor-only, matching "vendor manages the dish
 # library" from the project's business rules.
 
+
 @router.get("/menu-items", response_model=list[MenuItemOut])
-def get_menu_items(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_menu_items(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     return get_all_menu_items(db)
+
 
 @router.get("/menu-items/{item_id}", response_model=MenuItemOut)
 def get_menu_item(
-    item_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     item = get_menu_item_by_id(item_id, db)
     if item is None:
         raise HTTPException(status_code=404, detail="menu item not found")
     return item
 
-@router.post("/menu-items", response_model=MenuItemOut, dependencies=[Depends(require_permission("menu_item:create"))])
+
+@router.post(
+    "/menu-items",
+    response_model=MenuItemOut,
+    dependencies=[Depends(require_permission("menu_item:create"))],
+)
 def add_menu_item(new_item: MenuItemCreate, db: Session = Depends(get_db)):
     return add_new_menu_item(new_item, db)
 
-@router.patch("/menu-items/{item_id}", response_model=MenuItemOut, dependencies=[Depends(require_permission("menu_item:update"))])
-def update_menu_item(item_id: str, updates: MenuItemUpdate, db: Session = Depends(get_db)):
+
+@router.patch(
+    "/menu-items/{item_id}",
+    response_model=MenuItemOut,
+    dependencies=[Depends(require_permission("menu_item:update"))],
+)
+def update_menu_item(
+    item_id: UUID, updates: MenuItemUpdate, db: Session = Depends(get_db)
+):
     updated_item = update_menu_item_by_id(item_id, updates, db)
     if updated_item is None:
         raise HTTPException(status_code=404, detail="menu item not found")
     return updated_item
 
-@router.delete("/menu-items/{item_id}", status_code=204, dependencies=[Depends(require_permission("menu_item:delete"))])
-def delete_menu_item(item_id: str, db: Session = Depends(get_db)):
+
+@router.delete(
+    "/menu-items/{item_id}",
+    status_code=204,
+    dependencies=[Depends(require_permission("menu_item:delete"))],
+)
+def delete_menu_item(item_id: UUID, db: Session = Depends(get_db)):
     deleted_item = delete_menu_item_by_id(item_id, db)
     if deleted_item is None:
         raise HTTPException(status_code=404, detail="menu item not found")

@@ -1,16 +1,20 @@
 """CRUD for parent_of edges in the hierarchy tree. Operates directly on the database (psycopg2), not a proposals file."""
 
+from uuid import UUID
+
 
 class HierarchyError(Exception):
     """Raised when a mutation would violate the tree's rules."""
 
 
-def _item_exists(cur, item_id: str) -> bool:
+def _item_exists(cur, item_id: UUID) -> bool:
     cur.execute("SELECT 1 FROM menu_items WHERE id = %s", (item_id,))
     return cur.fetchone() is not None
 
 
-def _existing_parent(cur, child_id: str, relationship_type: str = "parent_of") -> str | None:
+def _existing_parent(
+    cur, child_id: UUID, relationship_type: str = "parent_of"
+) -> UUID | None:
     cur.execute(
         "SELECT to_item_id FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",
         (child_id, relationship_type),
@@ -19,7 +23,9 @@ def _existing_parent(cur, child_id: str, relationship_type: str = "parent_of") -
     return row[0] if row else None
 
 
-def _would_create_cycle(cur, child_id: str, new_parent_id: str, relationship_type: str = "parent_of") -> bool:
+def _would_create_cycle(
+    cur, child_id: UUID, new_parent_id: UUID, relationship_type: str = "parent_of"
+) -> bool:
     """True if child_id appears in new_parent_id's ancestor chain (i.e. this edge would create a cycle)."""
     current = new_parent_id
     seen = set()
@@ -37,12 +43,12 @@ def _would_create_cycle(cur, child_id: str, new_parent_id: str, relationship_typ
 
 def insert_edge(
     cur,
-    child_id: str,
-    parent_id: str,
+    child_id: UUID,
+    parent_id: UUID,
     relationship_type: str = "parent_of",
     confidence: str | None = None,
     reason: str | None = None,
-) -> str:
+) -> UUID:
     """Add a new edge. Raises HierarchyError if child/parent don't exist, child would be
     its own parent, this would create a cycle, or child already has an edge of this type
     (use update_edge instead). Returns the new edge's id."""
@@ -72,18 +78,20 @@ def insert_edge(
 
 def update_edge(
     cur,
-    child_id: str,
-    new_parent_id: str,
+    child_id: UUID,
+    new_parent_id: UUID,
     relationship_type: str = "parent_of",
     confidence: str | None = None,
     reason: str | None = None,
-) -> str:
+) -> UUID:
     """Reclassify: point child_id's edge at new_parent_id instead, whether or not
     it already had one. Returns the edge's id."""
     if not _item_exists(cur, child_id):
         raise HierarchyError(f"child_id {child_id} does not exist in menu_items")
     if not _item_exists(cur, new_parent_id):
-        raise HierarchyError(f"new_parent_id {new_parent_id} does not exist in menu_items")
+        raise HierarchyError(
+            f"new_parent_id {new_parent_id} does not exist in menu_items"
+        )
     if child_id == new_parent_id:
         raise HierarchyError("an item cannot be its own parent")
 
@@ -93,7 +101,9 @@ def update_edge(
         (child_id, relationship_type),
     )
     if _would_create_cycle(cur, child_id, new_parent_id, relationship_type):
-        raise HierarchyError(f"linking {child_id} -> {new_parent_id} would create a cycle")
+        raise HierarchyError(
+            f"linking {child_id} -> {new_parent_id} would create a cycle"
+        )
 
     cur.execute(
         """
@@ -101,12 +111,17 @@ def update_edge(
         VALUES (gen_random_uuid(), %s, %s, %s, %s)
         RETURNING id
         """,
-        (child_id, new_parent_id, relationship_type, _metadata_json(confidence, reason)),
+        (
+            child_id,
+            new_parent_id,
+            relationship_type,
+            _metadata_json(confidence, reason),
+        ),
     )
     return cur.fetchone()[0]
 
 
-def delete_node(cur, item_id: str, relationship_type: str = "parent_of") -> dict:
+def delete_node(cur, item_id: UUID, relationship_type: str = "parent_of") -> dict:
     """Remove item_id from the tree: reparents its children to its own parent
     (the grandparent) instead of cascading a delete or leaving them orphaned.
     Relies on edges meaning "is a more specific variant of" — skipping the
@@ -132,7 +147,10 @@ def delete_node(cur, item_id: str, relationship_type: str = "parent_of") -> dict
     if parent_id is not None:
         for child_id in child_ids:
             update_edge(
-                cur, child_id, parent_id, relationship_type,
+                cur,
+                child_id,
+                parent_id,
+                relationship_type,
                 reason="reparented one level up after its direct parent was deleted from the tree",
             )
             reparented.append(child_id)
@@ -145,7 +163,7 @@ def delete_node(cur, item_id: str, relationship_type: str = "parent_of") -> dict
     return {"parent_id": parent_id, "reparented_children": reparented}
 
 
-def delete_edge(cur, child_id: str, relationship_type: str = "parent_of") -> bool:
+def delete_edge(cur, child_id: UUID, relationship_type: str = "parent_of") -> bool:
     """Remove child_id's edge, making it a root again. Returns True if a row was deleted."""
     cur.execute(
         "DELETE FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",

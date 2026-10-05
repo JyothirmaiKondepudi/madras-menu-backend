@@ -1,8 +1,10 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
+from uuid import UUID
+
 
 class MenuItemOut(BaseModel):
-    id: str
+    id: UUID
     name: str
     course: str
     vegNonveg: str
@@ -18,7 +20,7 @@ class MenuItemOut(BaseModel):
     prepMethod: str | None = None
     portionUnit: str | None = None
     costPerPerson: float | None = None
-    taxCategoryId: str | None = None
+    taxCategoryId: UUID | None = None
     active: bool
     confidence: str | None = None
     sourceDocs: list[str] | None = None
@@ -44,7 +46,7 @@ class MenuItemCreate(BaseModel):
     prepMethod: str | None = None
     portionUnit: str | None = None
     costPerPerson: float | None = None
-    taxCategoryId: str | None = None
+    taxCategoryId: UUID | None = None
     active: bool = True
     confidence: str | None = None
     sourceDocs: list[str] | None = None
@@ -66,7 +68,7 @@ class MenuItemUpdate(BaseModel):
     prepMethod: str | None = None
     portionUnit: str | None = None
     costPerPerson: float | None = None
-    taxCategoryId: str | None = None
+    taxCategoryId: UUID | None = None
     active: bool | None = None
     confidence: str | None = None
     sourceDocs: list[str] | None = None

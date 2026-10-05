@@ -1,3 +1,6 @@
+import uuid
+
+
 def _make_item(client, name, headers):
     return client.post("/menu-items", json={
         "name": name, "course": "main", "vegNonveg": "veg", "priceWeight": "standard",
@@ -69,7 +72,7 @@ def test_get_edge_by_child_id(client, vendor_auth_headers):
 
 
 def test_get_nonexistent_edge_returns_404(client, vendor_auth_headers):
-    resp = client.get("/item-relationships/does-not-exist", headers=vendor_auth_headers)
+    resp = client.get(f"/item-relationships/{uuid.uuid4()}", headers=vendor_auth_headers)
     assert resp.status_code == 404
 
 
