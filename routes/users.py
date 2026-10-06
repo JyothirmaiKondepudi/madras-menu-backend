@@ -141,7 +141,7 @@ def delete_user(
     if project_count:
         raise HTTPException(
             status_code=409,
-            detail=f"This user is the venodr on {project_count} projects. Please disable the user instead.",
+            detail=f"This user is the vendor on {project_count} projects. Please disable the user instead.",
         )
     pending_invoice_count = get_invoice_for_user(user_id, db)
     if pending_invoice_count:
