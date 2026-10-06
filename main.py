@@ -118,13 +118,27 @@ def handle_hierarchy_error(request: Request, exc: HierarchyError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+# Postgres error code -> (status, message). The raw error names tables,
+# constraints and sometimes values, so it only goes to the server log.
+_INTEGRITY_ERRORS = {
+    "23505": (409, "A record with these details already exists."),  # unique
+    "23503": (409, "This record is linked to other records."),  # foreign key
+    "23502": (422, "A required field is missing."),  # not null
+    "23514": (422, "One of the values isn't allowed."),  # check
+}
+
+
 @app.exception_handler(IntegrityError)
 def handle_integrity_error(request: Request, exc: IntegrityError):
-    # constraint violation (unique, FK, not-null) surfaced by Postgres
+    # constraint violation (unique, FK, not-null, check) surfaced by Postgres
     logger.warning(
         "IntegrityError on %s %s: %s", request.method, request.url.path, exc.orig
     )
-    return JSONResponse(status_code=409, content={"detail": str(exc.orig)})
+    status_code, detail = _INTEGRITY_ERRORS.get(
+        getattr(exc.orig, "pgcode", None),
+        (409, "The request conflicts with existing data."),
+    )
+    return JSONResponse(status_code=status_code, content={"detail": detail})
 
 
 @app.exception_handler(OperationalError)
