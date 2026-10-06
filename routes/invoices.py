@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from services.invoices import *
 from services.invoice_pdf import invoice_pdf_path
+from services.billing_history import count_live_payments
 from fastapi import APIRouter, Depends, HTTPException
 from models import Invoice, User, Project, Subproject
 from schemas.invoice import InvoiceOut, InvoiceCreate, InvoiceUpdate
@@ -131,8 +132,23 @@ def delete_invoice(
     invoice_id: UUID,
     db: Session = Depends(get_db),
     invoice: Invoice = Depends(load_invoice_in_org),
+    current_user: User = Depends(get_current_user),
 ):
-    deleted_invoice = delete_invoice_by_invoice_id(invoice_id, db)
+    # only invoices the client hasn't accepted yet can be deleted
+    if invoice.invoiceStatus not in {"Generated", "Assigned", "Pending"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{invoice.invoiceStatus} invoices can't be deleted.",
+        )
+    payment_count = count_live_payments(invoice_id, db)
+    if payment_count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This invoice has {payment_count} payments. Void them before deleting the invoice.",
+        )
+    deleted_invoice = delete_invoice_by_invoice_id(
+        invoice_id, db, actor_id=current_user.userId
+    )
     if deleted_invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
 

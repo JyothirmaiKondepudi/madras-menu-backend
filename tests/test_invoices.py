@@ -151,6 +151,55 @@ def test_delete_invoice(client, test_user, test_project, vendor_auth_headers):
     assert client.get(f"/invoices/{created['invoiceId']}", headers=vendor_auth_headers).status_code == 404
 
 
+
+def test_deleted_invoice_is_hidden_but_kept(client, engine, test_user, test_project, vendor_auth_headers):
+    from sqlalchemy import text
+
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=vendor_auth_headers
+    ).json()
+    invoice_id = created["invoiceId"]
+    assert client.delete(f"/invoices/{invoice_id}", headers=vendor_auth_headers).status_code == 204
+
+    # gone from every read, and deleting again is a 404
+    listed = client.get("/invoices", headers=vendor_auth_headers).json()
+    assert invoice_id not in [i["invoiceId"] for i in listed]
+    by_project = client.get(f"/invoices/projects/{test_project['projectId']}", headers=vendor_auth_headers).json()
+    assert invoice_id not in [i["invoiceId"] for i in by_project]
+    assert client.delete(f"/invoices/{invoice_id}", headers=vendor_auth_headers).status_code == 404
+
+    # but the row is still there, and still blocks deleting its project
+    with engine.connect() as conn:
+        deleted_at = conn.execute(
+            text("SELECT invoice_deleted_at FROM invoices WHERE invoice_id = :id"), {"id": invoice_id}
+        ).scalar()
+    assert deleted_at is not None
+    resp = client.delete(f"/projects/{test_project['projectId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 409, resp.text
+
+
+def test_accepted_invoice_cannot_be_deleted(client, test_user, test_project, vendor_auth_headers):
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceStatus="Accepted"),
+        headers=vendor_auth_headers,
+    ).json()
+    resp = client.delete(f"/invoices/{created['invoiceId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 409
+    assert client.get(f"/invoices/{created['invoiceId']}", headers=vendor_auth_headers).status_code == 200
+
+
+def test_invoice_with_payment_cannot_be_deleted(client, test_user, test_project, vendor_auth_headers):
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=vendor_auth_headers
+    ).json()
+    paid = client.post(
+        "/billing-history/payments", json={"invoiceId": created["invoiceId"], "amount": 10}, headers=vendor_auth_headers
+    )
+    assert paid.status_code == 200, paid.text
+    resp = client.delete(f"/invoices/{created['invoiceId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 409
+
 def test_invoice_pdf_generated_and_downloadable(client, test_user, test_project, vendor_auth_headers):
     created = client.post(
         "/invoices",

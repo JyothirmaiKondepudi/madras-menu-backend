@@ -98,6 +98,8 @@ def get_invoice_count_for_sub_project(sub_project_id: UUID, db: Session):
         select(func.count())
         .select_from(Invoice)
         .where(Invoice.subprojectId == sub_project_id)
+        # soft-deleted invoices still block the delete in the database, so count them
+        .execution_options(include_deleted=True)
     )
 
 

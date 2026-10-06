@@ -29,7 +29,12 @@ def record_payment_made(
     current_user: User = Depends(get_current_user),
 ):
     invoice = db.get(Invoice, new_payment.invoiceId)
-    if invoice is None or invoice.project.organizationId != current_user.userOrg:
+    if (
+        invoice is None
+        # db.get can return an already-loaded row without the soft-delete filter
+        or invoice.invoiceDeletedAt is not None
+        or invoice.project.organizationId != current_user.userOrg
+    ):
         raise HTTPException(status_code=404, detail="invoice not found")
     return record_payment(
         invoice,

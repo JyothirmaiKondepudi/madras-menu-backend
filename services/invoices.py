@@ -7,6 +7,8 @@ from schemas.invoice import InvoiceUpdate
 from services.invoice_pdf import generate_invoice_pdf
 from services.notifications import create_notification
 from services.account_activity import record_activity
+from services.billing_history import _recompute_billing_info
+from datetime import datetime, timezone
 
 # InvoiceOut nests project -> client/vendor, same reasoning as
 # services/subproject.py's _WITH_PROJECT_AND_USERS.
@@ -71,6 +73,7 @@ def compute_invoice_amount(total_amount, deposit_percentage) -> Decimal:
     amount = Decimal(str(total_amount)) * Decimal(str(deposit_percentage)) / 100
     return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+
 def _regenerate_pdf(invoice: Invoice, db: Session) -> None:
     """The stored PDF always reflects the invoice's current data — called
     after every create AND every update, not just once at creation."""
@@ -81,7 +84,9 @@ def _regenerate_pdf(invoice: Invoice, db: Session) -> None:
 def add_new_invoice(new_invoice, db: Session, actor_id=None):
     created_invoice = Invoice(
         invoiceStatus=new_invoice.invoiceStatus,
-        invoiceAmount=compute_invoice_amount(new_invoice.totalAmount, new_invoice.depositPercentage),
+        invoiceAmount=compute_invoice_amount(
+            new_invoice.totalAmount, new_invoice.depositPercentage
+        ),
         totalAmount=new_invoice.totalAmount,
         depositPercentage=new_invoice.depositPercentage,
         invoiceAssignedTo=new_invoice.invoiceAssignedTo,
@@ -122,8 +127,12 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
         if invoice.totalAmount is None or invoice.depositPercentage is None:
             # only possible for invoices created before deposits existed
             db.rollback()
-            raise ValueError("totalAmount and depositPercentage are both needed to compute invoiceAmount")
-        invoice.invoiceAmount = compute_invoice_amount(invoice.totalAmount, invoice.depositPercentage)
+            raise ValueError(
+                "totalAmount and depositPercentage are both needed to compute invoiceAmount"
+            )
+        invoice.invoiceAmount = compute_invoice_amount(
+            invoice.totalAmount, invoice.depositPercentage
+        )
 
     db.commit()
     db.refresh(invoice)
@@ -170,11 +179,27 @@ def respond_to_invoice(
     return invoice
 
 
-def delete_invoice_by_invoice_id(invoice_id, db: Session):
+def delete_invoice_by_invoice_id(invoice_id, db: Session, actor_id=None):
+    """Soft delete: the row stays for the financial record, stamped with
+    invoiceDeletedAt. The route has already checked that it's deletable."""
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         return None
-
-    db.delete(invoice)
+    invoice.invoiceDeletedAt = datetime.now(timezone.utc)
+    if invoice.project.finalInvoiceId == invoice.invoiceId:
+        invoice.project.finalInvoiceId = None
+    if invoice.subprojectId is not None:
+        # the session doesn't autoflush, so flush first or the recompute
+        # still counts this invoice
+        db.flush()
+        _recompute_billing_info(invoice.subprojectId, db)
     db.commit()
+    record_activity(
+        db,
+        activity_type="invoice_deleted",
+        description=f'Invoice for "{invoice.project.projectName}" was deleted',
+        project_id=invoice.projectAssociatedTo,
+        subproject_id=invoice.subprojectId,
+        actor_id=actor_id,
+    )
     return invoice

@@ -116,6 +116,8 @@ def get_invoice_for_user(user_id, db):
         select(func.count())
         .select_from(Invoice)
         .where(Invoice.invoiceAssignedTo == user_id)
+        # soft-deleted invoices still block the delete in the database, so count them
+        .execution_options(include_deleted=True)
     )
 
 

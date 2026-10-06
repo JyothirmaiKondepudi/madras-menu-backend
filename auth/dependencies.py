@@ -117,6 +117,11 @@ def load_invoice_in_org(
     db: Session = Depends(get_db),
 ) -> Invoice:
     invoice = db.get(Invoice, invoice_id)
-    if invoice is None or invoice.project.organizationId != current_user.userOrg:
+    if (
+        invoice is None
+        # db.get can return an already-loaded row without the soft-delete filter
+        or invoice.invoiceDeletedAt is not None
+        or invoice.project.organizationId != current_user.userOrg
+    ):
         raise HTTPException(status_code=404, detail="invoice not found")
     return invoice

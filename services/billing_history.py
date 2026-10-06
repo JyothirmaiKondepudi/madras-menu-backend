@@ -5,6 +5,21 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 
+def count_live_payments(invoice_id, db: Session) -> int:
+    """Successful payments on an invoice that haven't been voided — the ones
+    that still count as money received. Declined or pending attempts never
+    moved money, so they don't count."""
+    return db.scalar(
+        select(func.count())
+        .select_from(BillingHistory)
+        .where(
+            BillingHistory.invoiceId == invoice_id,
+            BillingHistory.eventType == "Payment_Succeeded",
+            BillingHistory.voidedAt.is_(None),
+        )
+    )
+
+
 def get_billing_history_by_id(billing_history_id, db: Session):
     return db.get(BillingHistory, billing_history_id)
 
@@ -79,7 +94,8 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
     """
     total_invoiced = db.execute(
         select(func.coalesce(func.sum(Invoice.invoiceAmount), 0)).where(
-            Invoice.subprojectId == subproject_id
+            Invoice.subprojectId == subproject_id,
+            Invoice.invoiceDeletedAt.is_(None),
         )
     ).scalar_one()
 
