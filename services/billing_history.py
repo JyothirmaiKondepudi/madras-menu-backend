@@ -4,6 +4,8 @@ from models import BillingHistory, BillingInfo, Invoice, Project, Subproject
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from services.account_activity import record_activity
+
 
 def count_live_payments(invoice_id, db: Session) -> int:
     """Successful payments on an invoice that haven't been voided — the ones
@@ -105,6 +107,7 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
         .where(
             Invoice.subprojectId == subproject_id,
             BillingHistory.eventType == "Payment_Succeeded",
+            BillingHistory.voidedAt.is_(None),
         )
     ).scalar_one()
     total_refunded = db.execute(
@@ -113,6 +116,7 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
         .where(
             Invoice.subprojectId == subproject_id,
             BillingHistory.eventType == "Refund_Issued",
+            BillingHistory.voidedAt.is_(None),
         )
     ).scalar_one()
 
@@ -164,3 +168,32 @@ def record_payment(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+def void_payment(
+    payment: BillingHistory, invoice: Invoice, reason: str, db: Session, actor_id=None
+) -> BillingHistory:
+    """Marks a payment recorded by mistake as void. The row stays in the
+    history; it just stops counting toward the billing totals. The route has
+    already checked that the payment can be voided."""
+    payment.voidedAt = datetime.now(timezone.utc)
+    payment.voidedReason = reason
+
+    if invoice.subprojectId is not None:
+        db.flush()  # so the recompute leaves this payment out
+        _recompute_billing_info(invoice.subprojectId, db)
+
+    db.commit()
+    db.refresh(payment)
+    record_activity(
+        db,
+        activity_type="payment_voided",
+        description=(
+            f'Payment of ${payment.amount:,.2f} for "{invoice.project.projectName}" '
+            f"was voided: {reason}"
+        ),
+        project_id=invoice.projectAssociatedTo,
+        subproject_id=invoice.subprojectId,
+        actor_id=actor_id,
+    )
+    return payment

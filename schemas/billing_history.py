@@ -1,6 +1,6 @@
 from decimal import Decimal
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
-from typing import Literal
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
+from typing import Annotated, Literal
 from uuid import UUID
 from datetime import datetime
 
@@ -40,3 +40,9 @@ class PaymentCreate(BaseModel):
     # must include a timezone offset
     occurredAt: AwareDatetime | None = None
     billingMetadata: dict | None = None
+
+
+class VoidPaymentRequest(BaseModel):
+    """Why the payment is being voided, e.g. "Typo, actual amount was $150"."""
+
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]

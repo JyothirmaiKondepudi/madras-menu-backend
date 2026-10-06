@@ -30,6 +30,7 @@ PERMISSIONS = [
         "billing:create",
         "Record a billing transaction (e.g. a manually-entered payment)",
     ),
+    ("billing:void", "Void a payment that was recorded by mistake"),
     ("tax_category:manage", "Read or write tax categories/rates"),
     ("menu_item:create", "Add a new menu item"),
     ("menu_item:update", "Edit a menu item"),

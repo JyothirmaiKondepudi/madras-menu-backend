@@ -2,8 +2,8 @@ from sqlalchemy.orm import Session
 from services.billing_history import *
 from services.invoices import get_invoice_by_id
 from fastapi import APIRouter, Depends, HTTPException
-from models import User, Invoice, Subproject
-from schemas.billing_history import BillingHistoryOut, PaymentCreate
+from models import BillingHistory, User, Invoice, Subproject
+from schemas.billing_history import BillingHistoryOut, PaymentCreate, VoidPaymentRequest
 from database import get_db
 from auth.dependencies import (
     get_current_user,
@@ -44,6 +44,41 @@ def record_payment_made(
         db=db,
     )
 
+
+
+@router.post(
+    "/billing-history/{payment_id}/void",
+    response_model=BillingHistoryOut,
+    dependencies=[Depends(require_permission("billing:void"))],
+)
+def void_payment_made(
+    payment_id: UUID,
+    body: VoidPaymentRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    payment = db.get(BillingHistory, payment_id)
+    # a deleted invoice is filtered out, so its payments read as not found too
+    invoice = db.get(Invoice, payment.invoiceId) if payment is not None else None
+    if (
+        invoice is None
+        or invoice.invoiceDeletedAt is not None
+        or invoice.project.organizationId != current_user.userOrg
+    ):
+        raise HTTPException(status_code=404, detail="payment not found")
+    if payment.voidedAt is not None:
+        raise HTTPException(status_code=409, detail="This payment is already voided.")
+    if payment.eventType != "Payment_Succeeded":
+        raise HTTPException(
+            status_code=409, detail="Only successful payments can be voided."
+        )
+    if payment.source != "Manual":
+        # card payments really moved money; they're refunded, not voided
+        raise HTTPException(
+            status_code=409,
+            detail=f"{payment.source} payments can't be voided. Issue a refund instead.",
+        )
+    return void_payment(payment, invoice, body.reason, db, actor_id=current_user.userId)
 
 @router.get("/billing-history", response_model=list[BillingHistoryOut])
 def get_billing_history(

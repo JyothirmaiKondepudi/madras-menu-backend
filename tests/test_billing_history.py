@@ -218,3 +218,82 @@ def test_record_payment_rejects_fractions_of_a_cent(client, test_project, test_u
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 422
+
+
+# --- voiding payments -----------------------------------------------------
+
+def _pay(client, invoice_id, headers, amount=40):
+    resp = client.post("/billing-history/payments", json={"invoiceId": invoice_id, "amount": amount}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _void(client, payment_id, headers, reason="Entered by mistake"):
+    return client.post(f"/billing-history/{payment_id}/void", json={"reason": reason}, headers=headers)
+
+
+def test_voided_payment_stays_in_history_but_leaves_the_totals(client, test_project, test_user, vendor_auth_headers):
+    h = vendor_auth_headers
+    sub = _create_subproject(client, test_project["projectId"], h)
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], h, sub["subprojectId"], 100.0)
+    payment = _pay(client, invoice["invoiceId"], h, amount=40)
+    info = client.get(f"/billing-info/subprojects/{sub['subprojectId']}", headers=h).json()
+    assert info["totalPaid"] == "40.00"
+
+    resp = _void(client, payment["id"], h, reason="Typo, actual amount was $4")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["voidedAt"] is not None
+    assert resp.json()["voidedReason"] == "Typo, actual amount was $4"
+
+    info = client.get(f"/billing-info/subprojects/{sub['subprojectId']}", headers=h).json()
+    assert info["totalPaid"] == "0.00"
+    assert info["balanceDue"] == "100.00"
+    history = client.get(f"/billing-history/invoices/{invoice['invoiceId']}", headers=h).json()
+    assert [row["id"] for row in history] == [payment["id"]]
+
+
+def test_payment_cannot_be_voided_twice(client, test_project, test_user, vendor_auth_headers):
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    payment = _pay(client, invoice["invoiceId"], vendor_auth_headers)
+    assert _void(client, payment["id"], vendor_auth_headers).status_code == 200
+    assert _void(client, payment["id"], vendor_auth_headers).status_code == 409
+
+
+def test_void_requires_a_reason(client, test_project, test_user, vendor_auth_headers):
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    payment = _pay(client, invoice["invoiceId"], vendor_auth_headers)
+    assert _void(client, payment["id"], vendor_auth_headers, reason="   ").status_code == 422
+
+
+def test_client_cannot_void_payments(client, test_project, test_user, vendor_auth_headers, test_client_login):
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    payment = _pay(client, invoice["invoiceId"], vendor_auth_headers)
+    client_headers = {"Authorization": f"Bearer {_login(client, test_client_login['userEmail'])}"}
+    assert _void(client, payment["id"], client_headers).status_code == 403
+
+
+def test_stripe_payment_cannot_be_voided(client, engine, test_project, test_user, vendor_auth_headers):
+    from sqlalchemy import text
+
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    payment = _pay(client, invoice["invoiceId"], vendor_auth_headers)
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE billing_history SET source = 'Stripe' WHERE id = :id"), {"id": payment["id"]})
+    resp = _void(client, payment["id"], vendor_auth_headers)
+    assert resp.status_code == 409
+    assert "refund" in resp.json()["detail"].lower()
+
+
+def test_void_unknown_payment_404(client, vendor_auth_headers):
+    import uuid
+
+    assert _void(client, str(uuid.uuid4()), vendor_auth_headers).status_code == 404
+
+
+def test_invoice_can_be_deleted_once_its_payments_are_voided(client, test_project, test_user, vendor_auth_headers):
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    payment = _pay(client, invoice["invoiceId"], vendor_auth_headers)
+    assert client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).status_code == 409
+
+    assert _void(client, payment["id"], vendor_auth_headers).status_code == 200
+    assert client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).status_code == 204
