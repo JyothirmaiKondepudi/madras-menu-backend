@@ -7,7 +7,6 @@ from starlette.concurrency import run_in_threadpool
 import time
 import uuid
 import ipaddress
-import os
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes.users import router as users_router
@@ -25,6 +24,10 @@ from routes.billing_info import router as billing_info_router
 from routes.organizations import router as org_router
 from services.api_log_activity import record_api_log
 from hierarchy.mutations import HierarchyError
+from config import get_settings
+
+# fail at startup, listing every missing or invalid setting (see config.py)
+settings = get_settings()
 
 # Schema is managed by Alembic migrations — run `alembic upgrade head` after changing a model.
 
@@ -95,7 +98,7 @@ async def log_api_activity(request: Request, call_next):
             error=error,
         )
 
-CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
+CORS_ORIGINS = settings.CORS_ORIGINS
 
 app.add_middleware(
     CORSMiddleware,

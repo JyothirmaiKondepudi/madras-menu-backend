@@ -1,9 +1,10 @@
-import os
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, with_loader_criteria
 from sqlalchemy import event
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+from config import database_url
+
+DATABASE_URL = database_url()
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Foreign keys without an explicit name= get the same name Postgres would
