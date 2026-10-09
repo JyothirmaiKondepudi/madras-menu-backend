@@ -289,3 +289,63 @@ def test_accepted_invoice_can_still_be_edited_without_moving(client, test_projec
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200, resp.text
+
+
+def test_concurrent_payments_both_count_toward_total_paid(
+    client, engine, test_project, test_user, vendor_auth_headers
+):
+    """Two payments recomputing at the same time: the second has to wait for
+    the first to commit, then include it. Driven through two sessions
+    directly, since the test client only sends one request at a time."""
+    import threading
+    from uuid import UUID
+
+    from sqlalchemy.orm import Session
+
+    from models import BillingHistory, BillingInfo
+    from services.billing_history import _recompute_billing_info
+
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+    subproject_id = UUID(subproject["subprojectId"])
+    invoice_id = UUID(invoice["invoiceId"])
+
+    def pay(db, amount):
+        db.add(
+            BillingHistory(invoiceId=invoice_id, eventType="Payment_Succeeded", amount=amount, source="Manual")
+        )
+        db.flush()
+        _recompute_billing_info(subproject_id, db)
+
+    errors = []
+
+    def second_payment():
+        with Session(engine) as db:
+            try:
+                pay(db, 60)
+                db.commit()
+            except Exception as exc:  # surfaced in the main thread below
+                errors.append(exc)
+
+    # closed in finally: if an assertion fails while it holds the lock, the
+    # table cleanup after the test would otherwise wait on it forever
+    with Session(engine) as first:
+        pay(first, 40)  # holds the lock until it commits
+        thread = threading.Thread(target=second_payment)
+        thread.start()
+        thread.join(timeout=1)
+        waited = thread.is_alive()
+        first.commit()
+
+    thread.join(timeout=10)
+    assert waited, "second recompute didn't wait for the first one's lock"
+    assert not thread.is_alive()
+    assert not errors, errors
+
+    with Session(engine) as db:
+        info = db.get(BillingInfo, subproject_id)
+        assert info.totalPaid == 100
+        assert info.balanceDue == 0
+        assert info.status == "paid_in_full"

@@ -165,7 +165,8 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
     # the session doesn't autoflush, so flush first or the recompute
     # uses the old amount and subproject
     db.flush()
-    for subproject_id in {old_subproject_id, invoice.subprojectId} - {None}:
+    # sorted so concurrent moves lock subprojects in the same order and can't deadlock
+    for subproject_id in sorted({old_subproject_id, invoice.subprojectId} - {None}):
         _recompute_billing_info(subproject_id, db)
     db.commit()
     db.refresh(invoice)
