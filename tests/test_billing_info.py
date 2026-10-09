@@ -183,3 +183,109 @@ def test_project_level_invoice_does_not_create_billing_info(client, test_project
     assert resp.status_code == 200, resp.text
 
     assert client.get("/billing-info", headers=vendor_auth_headers).json() == []
+
+
+def _billing_info(client, subproject_id, headers):
+    resp = client.get(f"/billing-info/subprojects/{subproject_id}", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_updating_invoice_amount_updates_total_invoiced(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"totalAmount": 300.0}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["totalInvoiced"] == "300.00"
+    assert info["balanceDue"] == "300.00"
+
+
+def test_changing_invoice_subproject_updates_both(client, test_project, test_user, vendor_auth_headers):
+    old = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    new = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"]
+    )
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"subprojectId": new["subprojectId"]}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "0.00"
+    assert _billing_info(client, new["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "100.00"
+
+
+def test_detaching_invoice_from_subproject_updates_old_total(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"subprojectId": None}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["totalInvoiced"] == "0.00"
+    assert info["balanceDue"] == "0.00"
+
+
+def test_accepted_invoice_cannot_change_subproject(client, test_project, test_user, vendor_auth_headers):
+    old = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    new = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"]
+    )
+    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": "Accepted"}, headers=vendor_auth_headers)
+
+    for subproject_id in (new["subprojectId"], None):
+        resp = client.patch(
+            f"/invoices/{invoice['invoiceId']}", json={"subprojectId": subproject_id}, headers=vendor_auth_headers
+        )
+        assert resp.status_code == 409, resp.text
+
+    assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "100.00"
+
+
+def test_paid_invoice_cannot_change_subproject(client, test_project, test_user, vendor_auth_headers):
+    old = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    new = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"]
+    )
+    client.post(
+        "/billing-history/payments",
+        json={"invoiceId": invoice["invoiceId"], "amount": 40},
+        headers=vendor_auth_headers,
+    )
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"subprojectId": new["subprojectId"]}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 409, resp.text
+    assert "Void them" in resp.json()["detail"]
+
+
+def test_accepted_invoice_can_still_be_edited_without_moving(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": "Accepted"}, headers=vendor_auth_headers)
+
+    # sending the subproject it's already on isn't a move
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}",
+        json={"subprojectId": subproject["subprojectId"], "dueDate": "2026-11-20T09:00:00"},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text

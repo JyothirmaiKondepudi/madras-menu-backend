@@ -493,3 +493,112 @@ def test_project_level_invoice_keeps_vendor_due_date(client, test_user, test_pro
     assert resp.status_code == 200, resp.text
     # read in the project's timezone (New York, still EDT on Oct 25)
     assert _utc(resp.json()["dueDate"]) == "2026-10-25T13:00:00"
+
+
+def test_updated_due_date_is_read_in_venue_timezone(client, test_user, test_project, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(
+            test_project["projectId"], test_user["userId"], subprojectId=subproject["subprojectId"]
+        ),
+        headers=vendor_auth_headers,
+    ).json()
+
+    resp = client.patch(
+        f"/invoices/{created['invoiceId']}", json={"dueDate": "2026-11-15T09:00:00"}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    # New York in November is UTC-5
+    assert _utc(resp.json()["dueDate"]) == "2026-11-15T14:00:00"
+
+
+def test_due_date_can_be_cleared(client, test_user, test_project, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(
+            test_project["projectId"], test_user["userId"], subprojectId=subproject["subprojectId"]
+        ),
+        headers=vendor_auth_headers,
+    ).json()
+
+    resp = client.patch(f"/invoices/{created['invoiceId']}", json={"dueDate": None}, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["dueDate"] is None
+
+
+# --- rescheduling the event moves due dates with it (ticket C6) -------------
+
+def _invoice_on(client, test_project, test_user, headers, subproject_id, **overrides):
+    resp = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], subprojectId=subproject_id, **overrides),
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _reschedule(client, subproject_id, new_date, headers):
+    resp = client.patch(f"/subprojects/{subproject_id}", json={"subprojectDate": new_date}, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+
+def _due_date(client, invoice_id, headers):
+    return _utc(client.get(f"/invoices/{invoice_id}", headers=headers).json()["dueDate"])
+
+
+def test_rescheduling_event_shifts_due_dates(client, test_user, test_project, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    default = _invoice_on(client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"])
+    custom = _invoice_on(
+        client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"],
+        dueDate="2026-11-17T19:00:00",  # 14 days before the event
+    )
+
+    # Dec 1 -> Dec 11, same time of day
+    _reschedule(client, subproject["subprojectId"], "2026-12-11T19:00:00", vendor_auth_headers)
+
+    assert _due_date(client, default["invoiceId"], vendor_auth_headers) == "2026-12-05T00:00:00"
+    # still 14 days before the event
+    assert _due_date(client, custom["invoiceId"], vendor_auth_headers) == "2026-11-28T00:00:00"
+
+
+def test_rescheduling_keeps_due_dates_of_accepted_and_paid_invoices(
+    client, test_user, test_project, vendor_auth_headers
+):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    accepted = _invoice_on(client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"])
+    client.patch(f"/invoices/{accepted['invoiceId']}", json={"invoiceStatus": "Accepted"}, headers=vendor_auth_headers)
+    paid = _invoice_on(client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"])
+    client.post(
+        "/billing-history/payments", json={"invoiceId": paid["invoiceId"], "amount": 40}, headers=vendor_auth_headers
+    )
+
+    _reschedule(client, subproject["subprojectId"], "2026-12-11T19:00:00", vendor_auth_headers)
+
+    assert _due_date(client, accepted["invoiceId"], vendor_auth_headers) == "2026-11-25T00:00:00"
+    assert _due_date(client, paid["invoiceId"], vendor_auth_headers) == "2026-11-25T00:00:00"
+
+
+def test_rescheduling_leaves_other_subprojects_alone(client, test_user, test_project, vendor_auth_headers):
+    moved = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    other = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _invoice_on(client, test_project, test_user, vendor_auth_headers, other["subprojectId"])
+
+    _reschedule(client, moved["subprojectId"], "2026-12-11T19:00:00", vendor_auth_headers)
+
+    assert _due_date(client, invoice["invoiceId"], vendor_auth_headers) == "2026-11-25T00:00:00"
+
+
+def test_updating_subproject_without_new_date_keeps_due_dates(client, test_user, test_project, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _invoice_on(client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"])
+
+    resp = client.patch(
+        f"/subprojects/{subproject['subprojectId']}", json={"guestCount": 80}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert _due_date(client, invoice["invoiceId"], vendor_auth_headers) == "2026-11-25T00:00:00"

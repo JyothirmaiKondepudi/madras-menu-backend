@@ -103,11 +103,10 @@ def add_new_invoice(new_invoice, db: Session, actor_id=None):
         subprojectId=new_invoice.subprojectId,
         dueDate=to_instant(due_date, timezone=time_zone),
     )
-
     db.add(created_invoice)
     if created_invoice.subprojectId is not None:
         # the session doesn't autoflush, so flush first or the recompute
-        # still counts this invoice
+        # won't see this invoice
         db.flush()
         _recompute_billing_info(created_invoice.subprojectId, db)
 
@@ -135,6 +134,9 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         return None
+    # saved before the changes are applied: if the subproject changes, the
+    # one the invoice leaves needs recomputing too
+    old_subproject_id = invoice.subprojectId
 
     changes = updates.model_dump(exclude_unset=True)
     for field, value in changes.items():
@@ -151,11 +153,20 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
             invoice.totalAmount, invoice.depositPercentage
         )
 
-    if invoice.subprojectId is not None:
-        # the session doesn't autoflush, so flush first or the recompute
-        # still counts this invoice
-        db.flush()
-        _recompute_billing_info(invoice.subprojectId, db)
+    if "dueDate" in changes:
+        # db.get rather than invoice.subproject, which can still be the old
+        # subproject until a flush if this request changed subprojectId
+        if invoice.subprojectId is not None:
+            time_zone = db.get(Subproject, invoice.subprojectId).effectiveTimezone
+        else:
+            time_zone = invoice.project.effectiveTimezone
+        invoice.dueDate = to_instant(invoice.dueDate, time_zone)
+
+    # the session doesn't autoflush, so flush first or the recompute
+    # uses the old amount and subproject
+    db.flush()
+    for subproject_id in {old_subproject_id, invoice.subprojectId} - {None}:
+        _recompute_billing_info(subproject_id, db)
     db.commit()
     db.refresh(invoice)
     _regenerate_pdf(invoice, db)

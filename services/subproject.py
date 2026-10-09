@@ -1,5 +1,5 @@
-from models import Project, Subproject, Invoice
-from sqlalchemy import select, func
+from models import BillingHistory, Project, Subproject, Invoice
+from sqlalchemy import select, func, update
 from uuid import UUID
 from sqlalchemy.orm import Session, joinedload, selectinload
 from services.account_activity import record_activity
@@ -65,11 +65,40 @@ def add_new_subproject(new_subproject, db: Session, actor_id=None):
     return created_subproject
 
 
+def _shift_due_dates(subproject_id, delta, db: Session) -> None:
+    """The event moved, so its invoices' due dates move by the same amount,
+    which keeps any date the vendor set by hand the same distance from the
+    event. Invoices the client has accepted or paid keep their due date,
+    the same ones that can't be deleted or moved."""
+    live_payment = (
+        select(BillingHistory.id)
+        .where(
+            BillingHistory.invoiceId == Invoice.invoiceId,
+            BillingHistory.eventType == "Payment_Succeeded",
+            BillingHistory.voidedAt.is_(None),
+        )
+        .exists()
+    )
+    db.execute(
+        update(Invoice)
+        .where(
+            Invoice.subprojectId == subproject_id,
+            Invoice.invoiceDeletedAt.is_(None),
+            Invoice.dueDate.is_not(None),
+            Invoice.invoiceStatus.in_(["Generated", "Assigned", "Pending"]),
+            ~live_payment,
+        )
+        .values(dueDate=Invoice.dueDate + delta)
+        .execution_options(synchronize_session=False)
+    )
+
+
 def update_subproject_by_subproject_id(subproject_id, updates, db: Session):
     subproject = db.get(Subproject, subproject_id)
     if subproject is None:
         return None
 
+    old_date = subproject.subprojectDate
     changes = updates.model_dump(exclude_unset=True)
     if "subprojectDate" in changes:
         changes["subprojectDate"] = to_instant(
@@ -77,6 +106,9 @@ def update_subproject_by_subproject_id(subproject_id, updates, db: Session):
         )
     for field, value in changes.items():
         setattr(subproject, field, value)
+
+    if subproject.subprojectDate != old_date:
+        _shift_due_dates(subproject_id, subproject.subprojectDate - old_date, db)
 
     db.commit()
     db.refresh(subproject)

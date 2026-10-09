@@ -100,6 +100,7 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
             Invoice.invoiceDeletedAt.is_(None),
         )
     ).scalar_one()
+
     total_paid = db.execute(
         select(func.coalesce(func.sum(BillingHistory.amount), 0))
         .join(Invoice, BillingHistory.invoiceId == Invoice.invoiceId)
