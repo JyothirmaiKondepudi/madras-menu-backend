@@ -105,3 +105,247 @@ def test_client_only_sees_billing_info_for_linked_projects(
     resp = client.get(f"/billing-info/subprojects/{subproject['subprojectId']}", headers=client_auth)
     assert resp.status_code == 200
     assert resp.json()["subprojectId"] == subproject["subprojectId"]
+
+
+# --- billing_info stays in step with invoices (ticket C6) -------------------
+
+def test_creating_invoice_creates_billing_info(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], amount=250.0,
+    )
+
+    resp = client.get(f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    info = resp.json()
+    assert info["totalInvoiced"] == "250.00"
+    assert info["totalPaid"] == "0.00"
+    assert info["balanceDue"] == "250.00"
+    assert info["status"] == "payment_pending"
+
+
+def test_second_invoice_adds_to_total_invoiced(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    for amount in (100.0, 150.0):
+        _create_invoice(
+            client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+            subproject["subprojectId"], amount=amount,
+        )
+
+    info = client.get(
+        f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
+    ).json()
+    assert info["totalInvoiced"] == "250.00"
+    assert info["balanceDue"] == "250.00"
+
+
+def test_new_invoice_after_full_payment_reopens_balance(client, test_project, test_user, vendor_auth_headers):
+    """The stale case from the ticket: paid in full, then another invoice."""
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], amount=1000.0,
+    )
+    resp = client.post(
+        "/billing-history/payments",
+        json={"invoiceId": invoice["invoiceId"], "amount": 1000},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], amount=500.0,
+    )
+
+    info = client.get(
+        f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
+    ).json()
+    assert info["totalInvoiced"] == "1500.00"
+    assert info["totalPaid"] == "1000.00"
+    assert info["balanceDue"] == "500.00"
+    assert info["status"] == "partial_payment_received"
+
+
+def test_project_level_invoice_does_not_create_billing_info(client, test_project, test_user, vendor_auth_headers):
+    resp = client.post(
+        "/invoices",
+        json={
+            "invoiceStatus": "Generated",
+            "totalAmount": 100.0,
+            "depositPercentage": 100,
+            "invoiceAssignedTo": test_user["userId"],
+            "projectAssociatedTo": test_project["projectId"],
+        },
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert client.get("/billing-info", headers=vendor_auth_headers).json() == []
+
+
+def _billing_info(client, subproject_id, headers):
+    resp = client.get(f"/billing-info/subprojects/{subproject_id}", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_updating_invoice_amount_updates_total_invoiced(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"totalAmount": 300.0}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["totalInvoiced"] == "300.00"
+    assert info["balanceDue"] == "300.00"
+
+
+def test_changing_invoice_subproject_updates_both(client, test_project, test_user, vendor_auth_headers):
+    old = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    new = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"]
+    )
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"subprojectId": new["subprojectId"]}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "0.00"
+    assert _billing_info(client, new["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "100.00"
+
+
+def test_detaching_invoice_from_subproject_updates_old_total(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"subprojectId": None}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["totalInvoiced"] == "0.00"
+    assert info["balanceDue"] == "0.00"
+
+
+def test_accepted_invoice_cannot_change_subproject(client, test_project, test_user, vendor_auth_headers):
+    old = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    new = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"]
+    )
+    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": "Accepted"}, headers=vendor_auth_headers)
+
+    for subproject_id in (new["subprojectId"], None):
+        resp = client.patch(
+            f"/invoices/{invoice['invoiceId']}", json={"subprojectId": subproject_id}, headers=vendor_auth_headers
+        )
+        assert resp.status_code == 409, resp.text
+
+    assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "100.00"
+
+
+def test_paid_invoice_cannot_change_subproject(client, test_project, test_user, vendor_auth_headers):
+    old = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    new = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"]
+    )
+    client.post(
+        "/billing-history/payments",
+        json={"invoiceId": invoice["invoiceId"], "amount": 40},
+        headers=vendor_auth_headers,
+    )
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"subprojectId": new["subprojectId"]}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 409, resp.text
+    assert "Void them" in resp.json()["detail"]
+
+
+def test_accepted_invoice_can_still_be_edited_without_moving(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": "Accepted"}, headers=vendor_auth_headers)
+
+    # sending the subproject it's already on isn't a move
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}",
+        json={"subprojectId": subproject["subprojectId"], "dueDate": "2026-11-20T09:00:00"},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_concurrent_payments_both_count_toward_total_paid(
+    client, engine, test_project, test_user, vendor_auth_headers
+):
+    """Two payments recomputing at the same time: the second has to wait for
+    the first to commit, then include it. Driven through two sessions
+    directly, since the test client only sends one request at a time."""
+    import threading
+    from uuid import UUID
+
+    from sqlalchemy.orm import Session
+
+    from models import BillingHistory, BillingInfo
+    from services.billing_history import _recompute_billing_info
+
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+    subproject_id = UUID(subproject["subprojectId"])
+    invoice_id = UUID(invoice["invoiceId"])
+
+    def pay(db, amount):
+        db.add(
+            BillingHistory(invoiceId=invoice_id, eventType="Payment_Succeeded", amount=amount, source="Manual")
+        )
+        db.flush()
+        _recompute_billing_info(subproject_id, db)
+
+    errors = []
+
+    def second_payment():
+        with Session(engine) as db:
+            try:
+                pay(db, 60)
+                db.commit()
+            except Exception as exc:  # surfaced in the main thread below
+                errors.append(exc)
+
+    # closed in finally: if an assertion fails while it holds the lock, the
+    # table cleanup after the test would otherwise wait on it forever
+    with Session(engine) as first:
+        pay(first, 40)  # holds the lock until it commits
+        thread = threading.Thread(target=second_payment)
+        thread.start()
+        thread.join(timeout=1)
+        waited = thread.is_alive()
+        first.commit()
+
+    thread.join(timeout=10)
+    assert waited, "second recompute didn't wait for the first one's lock"
+    assert not thread.is_alive()
+    assert not errors, errors
+
+    with Session(engine) as db:
+        info = db.get(BillingInfo, subproject_id)
+        assert info.totalPaid == 100
+        assert info.balanceDue == 0
+        assert info.status == "paid_in_full"

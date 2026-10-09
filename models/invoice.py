@@ -71,6 +71,7 @@ class Invoice(Base):
     # Nullable: invoices created before deposits existed have neither.
     totalAmount = Column("total_amount", Numeric(12, 2))
     depositPercentage = Column("deposit_percentage", Numeric(5, 2))  # 25 = 25%
+    dueDate = Column("due_date", DateTime(timezone=True), nullable=True, index=True)
     # Explicit foreign_keys: Project.finalInvoiceId adds a second FK path.
     project = relationship("Project", foreign_keys=[projectAssociatedTo])
     subproject = relationship("Subproject")

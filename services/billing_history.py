@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from models import BillingHistory, BillingInfo, Invoice, Project, Subproject
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from services.account_activity import record_activity
@@ -93,7 +94,36 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
 
     Every amount involved is Numeric dollars, so the sums are exact and need
     no unit conversion.
+
+    Locks the billing_info row first, held until the caller commits, so two
+    recomputes for the same subproject run one after the other. Without it,
+    two payments arriving together each sum without the other's row and the
+    last commit wins with a total missing one payment. The row is created
+    first if it's missing, since a row that doesn't exist can't be locked.
     """
+    # make sure the row exists, then lock it. If another request is
+    # inserting it at the same moment, ON CONFLICT waits for that one to
+    # commit and then skips, so both end up locking the same row. The zeros
+    # are placeholders for the NOT NULL columns, overwritten below.
+    db.execute(
+        insert(BillingInfo)
+        .values(
+            subprojectId=subproject_id,
+            totalInvoiced=0,
+            totalPaid=0,
+            totalRefunded=0,
+            balanceDue=0,
+            status="payment_pending",
+            lastEventAt=datetime.now(timezone.utc),
+        )
+        .on_conflict_do_nothing(index_elements=[BillingInfo.subprojectId])
+    )
+    info = db.execute(
+        select(BillingInfo)
+        .where(BillingInfo.subprojectId == subproject_id)
+        .with_for_update()
+    ).scalar_one()
+
     total_invoiced = db.execute(
         select(func.coalesce(func.sum(Invoice.invoiceAmount), 0)).where(
             Invoice.subprojectId == subproject_id,
@@ -128,11 +158,6 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
         status = "partial_payment_received"
     else:
         status = "payment_pending"
-
-    info = db.get(BillingInfo, subproject_id)
-    if info is None:
-        info = BillingInfo(subprojectId=subproject_id)
-        db.add(info)
 
     info.totalInvoiced = total_invoiced
     info.totalPaid = total_paid

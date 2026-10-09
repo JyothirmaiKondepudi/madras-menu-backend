@@ -113,6 +113,24 @@ def update_invoice(
             or subproject.projectAssociatedTo != invoice.projectAssociatedTo
         ):
             raise HTTPException(status_code=404, detail="subproject not found")
+
+    # same rule as delete: once the client has accepted or paid, the invoice
+    # stays on its event. model_fields_set so an explicit null counts as a move
+    if (
+        "subprojectId" in updates.model_fields_set
+        and updates.subprojectId != invoice.subprojectId
+    ):
+        if invoice.invoiceStatus not in {"Generated", "Assigned", "Pending"}:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{invoice.invoiceStatus} invoices can't be moved to another subproject.",
+            )
+        payment_count = count_live_payments(invoice_id, db)
+        if payment_count:
+            raise HTTPException(
+                status_code=409,
+                detail=f"This invoice has {payment_count} payments. Void them before moving the invoice.",
+            )
     load_invoice_in_org(invoice_id, current_user, db)
     try:
         updated_invoice = update_invoice_by_invoice_id(invoice_id, updates, db)
