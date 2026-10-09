@@ -73,4 +73,5 @@ class Invoice(Base):
     depositPercentage = Column("deposit_percentage", Numeric(5, 2))  # 25 = 25%
     # Explicit foreign_keys: Project.finalInvoiceId adds a second FK path.
     project = relationship("Project", foreign_keys=[projectAssociatedTo])
+    dueDate = Column("due_date", DateTime(timezone=True), nullable=True, index=True)
     subproject = relationship("Subproject")

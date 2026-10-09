@@ -21,6 +21,7 @@ class InvoiceOut(BaseModel):
     project: ProjectOut
     createdAt: datetime
     updatedAt: datetime
+    dueDate: datetime | None = None
     invoiceDeletedAt: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
 
@@ -35,6 +36,7 @@ class InvoiceCreate(BaseModel):
     invoiceAssignedTo: UUID
     projectAssociatedTo: UUID
     subprojectId: UUID | None = None
+    dueDate: datetime | None = None
 
 
 class InvoiceUpdate(BaseModel):
@@ -50,3 +52,4 @@ class InvoiceUpdate(BaseModel):
     )
     invoiceAssignedTo: UUID | None = None
     subprojectId: UUID | None = None
+    dueDate: datetime | None = None

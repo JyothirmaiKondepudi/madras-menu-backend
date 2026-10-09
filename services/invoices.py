@@ -1,14 +1,15 @@
 from decimal import Decimal, ROUND_HALF_UP
 
-from models import Invoice, Project, User
+from models import Invoice, Project, User, Subproject
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 from schemas.invoice import InvoiceUpdate
 from services.invoice_pdf import generate_invoice_pdf
 from services.notifications import create_notification
 from services.account_activity import record_activity
+from services.timezones import to_instant
 from services.billing_history import _recompute_billing_info
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # InvoiceOut nests project -> client/vendor, same reasoning as
 # services/subproject.py's _WITH_PROJECT_AND_USERS.
@@ -82,6 +83,14 @@ def _regenerate_pdf(invoice: Invoice, db: Session) -> None:
 
 
 def add_new_invoice(new_invoice, db: Session, actor_id=None):
+    due_date = new_invoice.dueDate
+    if new_invoice.subprojectId is not None:
+        sub_project = db.get(Subproject, new_invoice.subprojectId)
+        time_zone = sub_project.effectiveTimezone
+        if due_date is None:
+            due_date = sub_project.subprojectDate - timedelta(days=7)
+    else:
+        time_zone = db.get(Project, new_invoice.projectAssociatedTo).effectiveTimezone
     created_invoice = Invoice(
         invoiceStatus=new_invoice.invoiceStatus,
         invoiceAmount=compute_invoice_amount(
@@ -92,8 +101,16 @@ def add_new_invoice(new_invoice, db: Session, actor_id=None):
         invoiceAssignedTo=new_invoice.invoiceAssignedTo,
         projectAssociatedTo=new_invoice.projectAssociatedTo,
         subprojectId=new_invoice.subprojectId,
+        dueDate=to_instant(due_date, timezone=time_zone),
     )
+
     db.add(created_invoice)
+    if created_invoice.subprojectId is not None:
+        # the session doesn't autoflush, so flush first or the recompute
+        # still counts this invoice
+        db.flush()
+        _recompute_billing_info(created_invoice.subprojectId, db)
+
     db.commit()
     db.refresh(created_invoice)
     _regenerate_pdf(created_invoice, db)
@@ -134,6 +151,11 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
             invoice.totalAmount, invoice.depositPercentage
         )
 
+    if invoice.subprojectId is not None:
+        # the session doesn't autoflush, so flush first or the recompute
+        # still counts this invoice
+        db.flush()
+        _recompute_billing_info(invoice.subprojectId, db)
     db.commit()
     db.refresh(invoice)
     _regenerate_pdf(invoice, db)

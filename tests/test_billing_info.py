@@ -105,3 +105,81 @@ def test_client_only_sees_billing_info_for_linked_projects(
     resp = client.get(f"/billing-info/subprojects/{subproject['subprojectId']}", headers=client_auth)
     assert resp.status_code == 200
     assert resp.json()["subprojectId"] == subproject["subprojectId"]
+
+
+# --- billing_info stays in step with invoices (ticket C6) -------------------
+
+def test_creating_invoice_creates_billing_info(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], amount=250.0,
+    )
+
+    resp = client.get(f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    info = resp.json()
+    assert info["totalInvoiced"] == "250.00"
+    assert info["totalPaid"] == "0.00"
+    assert info["balanceDue"] == "250.00"
+    assert info["status"] == "payment_pending"
+
+
+def test_second_invoice_adds_to_total_invoiced(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    for amount in (100.0, 150.0):
+        _create_invoice(
+            client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+            subproject["subprojectId"], amount=amount,
+        )
+
+    info = client.get(
+        f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
+    ).json()
+    assert info["totalInvoiced"] == "250.00"
+    assert info["balanceDue"] == "250.00"
+
+
+def test_new_invoice_after_full_payment_reopens_balance(client, test_project, test_user, vendor_auth_headers):
+    """The stale case from the ticket: paid in full, then another invoice."""
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], amount=1000.0,
+    )
+    resp = client.post(
+        "/billing-history/payments",
+        json={"invoiceId": invoice["invoiceId"], "amount": 1000},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], amount=500.0,
+    )
+
+    info = client.get(
+        f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
+    ).json()
+    assert info["totalInvoiced"] == "1500.00"
+    assert info["totalPaid"] == "1000.00"
+    assert info["balanceDue"] == "500.00"
+    assert info["status"] == "partial_payment_received"
+
+
+def test_project_level_invoice_does_not_create_billing_info(client, test_project, test_user, vendor_auth_headers):
+    resp = client.post(
+        "/invoices",
+        json={
+            "invoiceStatus": "Generated",
+            "totalAmount": 100.0,
+            "depositPercentage": 100,
+            "invoiceAssignedTo": test_user["userId"],
+            "projectAssociatedTo": test_project["projectId"],
+        },
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert client.get("/billing-info", headers=vendor_auth_headers).json() == []
