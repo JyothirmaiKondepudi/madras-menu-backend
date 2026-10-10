@@ -12,6 +12,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 import uuid
+from datetime import datetime, timezone
+
 from database import Base
 
 
@@ -36,8 +38,23 @@ class BillingInfo(Base):
             "partial_payment_received",
             "paid_in_full",
             "overdue",
+            "no_active_invoices",
             name="billing_status_enum",
         ),
         nullable=False,
     )
+    # earliest due date among invoices that still owe money; set by the recompute
+    nextDueDate = Column("next_due_date", DateTime(timezone=True), nullable=True)
     lastEventAt = Column("last_event_at", DateTime(timezone=True), nullable=False)
+
+    @property
+    def currentStatus(self):
+        """overdue depends on today's date, so it's decided when read rather
+        than stored: nothing happens in the app when a due date passes."""
+        if (
+            self.balanceDue > 0
+            and self.nextDueDate is not None
+            and self.nextDueDate < datetime.now(timezone.utc)
+        ):
+            return "overdue"
+        return self.status

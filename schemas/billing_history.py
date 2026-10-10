@@ -45,4 +45,6 @@ class PaymentCreate(BaseModel):
 class VoidPaymentRequest(BaseModel):
     """Why the payment is being voided, e.g. "Typo, actual amount was $150"."""
 
-    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    reason: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+    ]

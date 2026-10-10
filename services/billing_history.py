@@ -7,6 +7,13 @@ from sqlalchemy.orm import Session
 
 from services.account_activity import record_activity
 
+# Invoices are billed once the client accepts them: these count toward
+# billing_info and can take payments. Until then the vendor can still
+# reject, delete or move them, or shift their due date. What Pending means
+# is decided in ticket C7.
+COUNTED_INVOICE_STATUSES = ("Accepted", "Pending", "Paid")
+EDITABLE_INVOICE_STATUSES = ("Generated", "Assigned")
+
 
 def count_live_payments(invoice_id, db: Session) -> int:
     """Successful payments on an invoice that haven't been voided — the ones
@@ -124,12 +131,16 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
         .with_for_update()
     ).scalar_one()
 
-    total_invoiced = db.execute(
-        select(func.coalesce(func.sum(Invoice.invoiceAmount), 0)).where(
+    active_invoices, total_invoiced = db.execute(
+        select(
+            func.count(),
+            func.coalesce(func.sum(Invoice.invoiceAmount), 0),
+        ).where(
             Invoice.subprojectId == subproject_id,
             Invoice.invoiceDeletedAt.is_(None),
+            Invoice.invoiceStatus.in_(COUNTED_INVOICE_STATUSES),
         )
-    ).scalar_one()
+    ).one()
 
     total_paid = db.execute(
         select(func.coalesce(func.sum(BillingHistory.amount), 0))
@@ -152,18 +163,47 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
 
     balance_due = total_invoiced - total_paid + total_refunded
 
-    if balance_due <= 0:
+    if active_invoices == 0:
+        # none accepted yet, or all deleted: nothing is billed, which isn't
+        # the same as the client having paid everything
+        status = "no_active_invoices"
+    elif balance_due <= 0:
         status = "paid_in_full"
     elif total_paid > 0:
         status = "partial_payment_received"
     else:
         status = "payment_pending"
 
+    # earliest due date among invoices that still owe money (net of
+    # refunds); the read side compares it with now to report overdue
+    def paid_on_invoice(event_type):
+        return (
+            select(func.coalesce(func.sum(BillingHistory.amount), 0))
+            .where(
+                BillingHistory.invoiceId == Invoice.invoiceId,
+                BillingHistory.eventType == event_type,
+                BillingHistory.voidedAt.is_(None),
+            )
+            .scalar_subquery()
+        )
+
+    next_due_date = db.execute(
+        select(func.min(Invoice.dueDate)).where(
+            Invoice.subprojectId == subproject_id,
+            Invoice.invoiceDeletedAt.is_(None),
+            Invoice.dueDate.is_not(None),
+            Invoice.invoiceStatus.in_(COUNTED_INVOICE_STATUSES),
+            paid_on_invoice("Payment_Succeeded") - paid_on_invoice("Refund_Issued")
+            < Invoice.invoiceAmount,
+        )
+    ).scalar_one()
+
     info.totalInvoiced = total_invoiced
     info.totalPaid = total_paid
     info.totalRefunded = total_refunded
     info.balanceDue = balance_due
     info.status = status
+    info.nextDueDate = next_due_date
     info.lastEventAt = datetime.now(timezone.utc)
 
 

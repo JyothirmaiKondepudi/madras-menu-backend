@@ -36,6 +36,11 @@ def record_payment_made(
         or invoice.project.organizationId != current_user.userOrg
     ):
         raise HTTPException(status_code=404, detail="invoice not found")
+    if invoice.invoiceStatus not in COUNTED_INVOICE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="The client must accept this invoice before payments can be recorded.",
+        )
     return record_payment(
         invoice,
         amount=new_payment.amount,
@@ -43,7 +48,6 @@ def record_payment_made(
         billing_metadata=new_payment.billingMetadata,
         db=db,
     )
-
 
 
 @router.post(
@@ -79,6 +83,7 @@ def void_payment_made(
             detail=f"{payment.source} payments can't be voided. Issue a refund instead.",
         )
     return void_payment(payment, invoice, body.reason, db, actor_id=current_user.userId)
+
 
 @router.get("/billing-history", response_model=list[BillingHistoryOut])
 def get_billing_history(

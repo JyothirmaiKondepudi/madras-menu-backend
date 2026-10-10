@@ -3,6 +3,7 @@ from sqlalchemy import select, func, update
 from uuid import UUID
 from sqlalchemy.orm import Session, joinedload, selectinload
 from services.account_activity import record_activity
+from services.billing_history import EDITABLE_INVOICE_STATUSES, _recompute_billing_info
 from services.timezones import effective_timezone, to_instant
 
 # shared by every query that returns a SubprojectOut, since it now nests
@@ -69,7 +70,11 @@ def _shift_due_dates(subproject_id, delta, db: Session) -> None:
     """The event moved, so its invoices' due dates move by the same amount,
     which keeps any date the vendor set by hand the same distance from the
     event. Invoices the client has accepted or paid keep their due date,
-    the same ones that can't be deleted or moved."""
+    the same ones that can't be deleted or moved.
+
+    billing_info's next due date comes from these, so it's recomputed when
+    any moved; only then, so a subproject with no invoices doesn't get an
+    empty billing_info row just for being rescheduled."""
     live_payment = (
         select(BillingHistory.id)
         .where(
@@ -79,18 +84,20 @@ def _shift_due_dates(subproject_id, delta, db: Session) -> None:
         )
         .exists()
     )
-    db.execute(
+    result = db.execute(
         update(Invoice)
         .where(
             Invoice.subprojectId == subproject_id,
             Invoice.invoiceDeletedAt.is_(None),
             Invoice.dueDate.is_not(None),
-            Invoice.invoiceStatus.in_(["Generated", "Assigned", "Pending"]),
+            Invoice.invoiceStatus.in_(EDITABLE_INVOICE_STATUSES),
             ~live_payment,
         )
         .values(dueDate=Invoice.dueDate + delta)
         .execution_options(synchronize_session=False)
     )
+    if result.rowcount:
+        _recompute_billing_info(subproject_id, db)
 
 
 def update_subproject_by_subproject_id(subproject_id, updates, db: Session):

@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from services.invoices import *
 from services.invoice_pdf import invoice_pdf_path
-from services.billing_history import count_live_payments
+from services.billing_history import EDITABLE_INVOICE_STATUSES, count_live_payments
 from fastapi import APIRouter, Depends, HTTPException
 from models import Invoice, User, Project, Subproject
 from schemas.invoice import InvoiceOut, InvoiceCreate, InvoiceUpdate
@@ -120,7 +120,7 @@ def update_invoice(
         "subprojectId" in updates.model_fields_set
         and updates.subprojectId != invoice.subprojectId
     ):
-        if invoice.invoiceStatus not in {"Generated", "Assigned", "Pending"}:
+        if invoice.invoiceStatus not in EDITABLE_INVOICE_STATUSES:
             raise HTTPException(
                 status_code=409,
                 detail=f"{invoice.invoiceStatus} invoices can't be moved to another subproject.",
@@ -153,7 +153,7 @@ def delete_invoice(
     current_user: User = Depends(get_current_user),
 ):
     # only invoices the client hasn't accepted yet can be deleted
-    if invoice.invoiceStatus not in {"Generated", "Assigned", "Pending"}:
+    if invoice.invoiceStatus not in EDITABLE_INVOICE_STATUSES:
         raise HTTPException(
             status_code=409,
             detail=f"{invoice.invoiceStatus} invoices can't be deleted.",
@@ -207,6 +207,11 @@ def reject_invoice(
     ):
         raise HTTPException(
             status_code=403, detail="not authorized to respond to this invoice"
+        )
+    if invoice.invoiceStatus not in EDITABLE_INVOICE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{invoice.invoiceStatus} invoices can't be rejected.",
         )
     return respond_to_invoice(invoice, "Declined", db, actor_id=current_user.userId)
 

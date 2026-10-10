@@ -1,3 +1,6 @@
+import pytest
+
+
 def _subproject_body(project_id):
     return {
         "subprojectName": "Billing Test Subproject",
@@ -33,11 +36,15 @@ def _create_subproject(client, project_id, headers):
     return resp.json()
 
 
-def _create_invoice(client, project_id, user_id, headers, subproject_id=None, amount=100.0):
+def _create_invoice(client, project_id, user_id, headers, subproject_id=None, amount=100.0, accept=True):
+    """Accepted by default: payments can only be recorded once the client accepts."""
     resp = client.post(
         "/invoices", json=_invoice_body(project_id, user_id, subproject_id, amount), headers=headers
     )
     assert resp.status_code == 200, resp.text
+    if accept:
+        resp = client.patch(f"/invoices/{resp.json()['invoiceId']}/accept", headers=headers)
+        assert resp.status_code == 200, resp.text
     return resp.json()
 
 
@@ -290,10 +297,42 @@ def test_void_unknown_payment_404(client, vendor_auth_headers):
     assert _void(client, str(uuid.uuid4()), vendor_auth_headers).status_code == 404
 
 
-def test_invoice_can_be_deleted_once_its_payments_are_voided(client, test_project, test_user, vendor_auth_headers):
+def test_accepted_invoice_cannot_be_deleted_even_after_voiding_its_payments(
+    client, test_project, test_user, vendor_auth_headers
+):
+    """Payments need an accepted invoice, and accepted invoices can't be deleted,
+    so voiding the payments doesn't make it deletable again."""
     invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
     payment = _pay(client, invoice["invoiceId"], vendor_auth_headers)
+    assert _void(client, payment["id"], vendor_auth_headers).status_code == 200
+
     assert client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).status_code == 409
 
-    assert _void(client, payment["id"], vendor_auth_headers).status_code == 200
-    assert client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).status_code == 204
+
+# --- payments need an accepted invoice (ticket C6) ---------------------------
+
+@pytest.mark.parametrize("status", ["Generated", "Assigned", "Declined"])
+def test_payment_rejected_until_invoice_is_accepted(client, test_project, test_user, vendor_auth_headers, status):
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, accept=False
+    )
+    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": status}, headers=vendor_auth_headers)
+
+    resp = client.post(
+        "/billing-history/payments", json={"invoiceId": invoice["invoiceId"], "amount": 10}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 409, resp.text
+    assert "accept" in resp.json()["detail"]
+
+
+@pytest.mark.parametrize("status", ["Accepted", "Pending", "Paid"])
+def test_payment_allowed_once_invoice_is_accepted(client, test_project, test_user, vendor_auth_headers, status):
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, accept=False
+    )
+    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": status}, headers=vendor_auth_headers)
+
+    resp = client.post(
+        "/billing-history/payments", json={"invoiceId": invoice["invoiceId"], "amount": 10}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text

@@ -182,6 +182,9 @@ def respond_to_invoice(
     project's vendor — regardless of which of the two performed the
     action, per the basic design: "each gets a notification.\" """
     invoice.invoiceStatus = new_status
+    if invoice.subprojectId is not None:
+        db.flush()
+        _recompute_billing_info(invoice.subprojectId, db)
     db.commit()
     db.refresh(invoice)
     _regenerate_pdf(invoice, db)

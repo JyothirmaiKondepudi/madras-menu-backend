@@ -193,6 +193,7 @@ def test_invoice_with_payment_cannot_be_deleted(client, test_user, test_project,
     created = client.post(
         "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=vendor_auth_headers
     ).json()
+    client.patch(f"/invoices/{created['invoiceId']}/accept", headers=vendor_auth_headers)
     paid = client.post(
         "/billing-history/payments", json={"invoiceId": created["invoiceId"], "amount": 10}, headers=vendor_auth_headers
     )
@@ -572,6 +573,7 @@ def test_rescheduling_keeps_due_dates_of_accepted_and_paid_invoices(
     accepted = _invoice_on(client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"])
     client.patch(f"/invoices/{accepted['invoiceId']}", json={"invoiceStatus": "Accepted"}, headers=vendor_auth_headers)
     paid = _invoice_on(client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"])
+    client.patch(f"/invoices/{paid['invoiceId']}/accept", headers=vendor_auth_headers)
     client.post(
         "/billing-history/payments", json={"invoiceId": paid["invoiceId"], "amount": 40}, headers=vendor_auth_headers
     )
