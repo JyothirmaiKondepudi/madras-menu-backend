@@ -361,6 +361,7 @@ def _org_b_payment(client, vendor_b):
         ),
         headers=b,
     ).json()
+    client.patch(f"/invoices/{invoice['invoiceId']}/accept", headers=b)
     payment = client.post(
         "/billing-history/payments",
         json={"invoiceId": invoice["invoiceId"], "amount": 22.22},
@@ -381,6 +382,7 @@ def test_user_list_only_shows_own_org(client, org_a, vendor_b, vendor_auth_heade
 def test_billing_history_list_only_shows_own_org(
     client, org_a, vendor_b, vendor_auth_headers
 ):
+    client.patch(f"/invoices/{org_a['invoice']}/accept", headers=vendor_auth_headers)
     own = client.post(
         "/billing-history/payments",
         json={"invoiceId": org_a["invoice"], "amount": 11.11},
@@ -418,6 +420,7 @@ def test_list_only_shows_own_org(
 def test_billing_info_list_only_shows_own_org(
     client, org_a, vendor_b, vendor_auth_headers
 ):
+    client.patch(f"/invoices/{org_a['invoice']}/accept", headers=vendor_auth_headers)
     client.post(
         "/billing-history/payments",
         json={"invoiceId": org_a["invoice"], "amount": 11.11},

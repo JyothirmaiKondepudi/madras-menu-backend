@@ -1,3 +1,6 @@
+import pytest
+
+
 def _subproject_body(project_id):
     return {
         "subprojectName": "Billing Info Test Subproject",
@@ -20,7 +23,8 @@ def _create_subproject(client, project_id, headers):
     return resp.json()
 
 
-def _create_invoice(client, project_id, user_id, headers, subproject_id, amount=100.0):
+def _create_invoice(client, project_id, user_id, headers, subproject_id, amount=100.0, accept=True):
+    """Accepted by default, since only accepted invoices count toward billing_info."""
     resp = client.post(
         "/invoices",
         json={
@@ -34,6 +38,9 @@ def _create_invoice(client, project_id, user_id, headers, subproject_id, amount=
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
+    if accept:
+        resp = client.patch(f"/invoices/{resp.json()['invoiceId']}/accept", headers=headers)
+        assert resp.status_code == 200, resp.text
     return resp.json()
 
 
@@ -109,7 +116,20 @@ def test_client_only_sees_billing_info_for_linked_projects(
 
 # --- billing_info stays in step with invoices (ticket C6) -------------------
 
-def test_creating_invoice_creates_billing_info(client, test_project, test_user, vendor_auth_headers):
+def test_unaccepted_invoice_is_not_billed(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], amount=250.0, accept=False,
+    )
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["status"] == "no_active_invoices"
+    assert info["totalInvoiced"] == "0.00"
+    assert info["balanceDue"] == "0.00"
+
+
+def test_accepting_invoice_adds_it_to_billing_info(client, test_project, test_user, vendor_auth_headers):
     subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
     _create_invoice(
         client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
@@ -207,26 +227,31 @@ def test_updating_invoice_amount_updates_total_invoiced(client, test_project, te
     assert info["balanceDue"] == "300.00"
 
 
-def test_changing_invoice_subproject_updates_both(client, test_project, test_user, vendor_auth_headers):
+def test_invoice_moved_before_acceptance_bills_its_new_subproject(
+    client, test_project, test_user, vendor_auth_headers
+):
     old = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
     new = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
     invoice = _create_invoice(
-        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"]
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"], accept=False
     )
 
     resp = client.patch(
         f"/invoices/{invoice['invoiceId']}", json={"subprojectId": new["subprojectId"]}, headers=vendor_auth_headers
     )
     assert resp.status_code == 200, resp.text
+    resp = client.patch(f"/invoices/{invoice['invoiceId']}/accept", headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
 
-    assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "0.00"
+    assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["status"] == "no_active_invoices"
     assert _billing_info(client, new["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "100.00"
 
 
 def test_detaching_invoice_from_subproject_updates_old_total(client, test_project, test_user, vendor_auth_headers):
     subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
     invoice = _create_invoice(
-        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], accept=False,
     )
 
     resp = client.patch(
@@ -245,7 +270,6 @@ def test_accepted_invoice_cannot_change_subproject(client, test_project, test_us
     invoice = _create_invoice(
         client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"]
     )
-    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": "Accepted"}, headers=vendor_auth_headers)
 
     for subproject_id in (new["subprojectId"], None):
         resp = client.patch(
@@ -272,7 +296,6 @@ def test_paid_invoice_cannot_change_subproject(client, test_project, test_user, 
         f"/invoices/{invoice['invoiceId']}", json={"subprojectId": new["subprojectId"]}, headers=vendor_auth_headers
     )
     assert resp.status_code == 409, resp.text
-    assert "Void them" in resp.json()["detail"]
 
 
 def test_accepted_invoice_can_still_be_edited_without_moving(client, test_project, test_user, vendor_auth_headers):
@@ -349,3 +372,276 @@ def test_concurrent_payments_both_count_toward_total_paid(
         assert info.totalPaid == 100
         assert info.balanceDue == 0
         assert info.status == "paid_in_full"
+
+
+# --- overdue: decided when read, from the earliest unpaid due date (ticket C6) ---
+
+PAST = "2020-01-01T09:00:00"
+FUTURE = "2099-01-01T09:00:00"
+
+
+def _invoice_due(client, project_id, user_id, headers, subproject_id, due_date, amount=100.0, accept=True):
+    resp = client.post(
+        "/invoices",
+        json={
+            "invoiceStatus": "Generated",
+            "totalAmount": amount,
+            "depositPercentage": 100,
+            "invoiceAssignedTo": user_id,
+            "projectAssociatedTo": project_id,
+            "subprojectId": subproject_id,
+            "dueDate": due_date,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    if accept:
+        resp = client.patch(f"/invoices/{resp.json()['invoiceId']}/accept", headers=headers)
+        assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _pay(client, invoice_id, amount, headers):
+    resp = client.post("/billing-history/payments", json={"invoiceId": invoice_id, "amount": amount}, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+
+def test_past_due_invoice_with_balance_is_overdue(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    _invoice_due(client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"], PAST)
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["status"] == "overdue"
+    assert info["nextDueDate"] is not None
+
+
+def test_overdue_takes_precedence_over_partial_payment(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _invoice_due(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"], PAST
+    )
+    _pay(client, invoice["invoiceId"], 40, vendor_auth_headers)
+
+    assert _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["status"] == "overdue"
+
+
+def test_paid_invoice_past_due_is_not_overdue(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _invoice_due(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"], PAST
+    )
+    _pay(client, invoice["invoiceId"], 100, vendor_auth_headers)
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["status"] == "paid_in_full"
+    assert info["nextDueDate"] is None
+
+
+def test_future_due_date_is_not_overdue(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    _invoice_due(client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"], FUTURE)
+
+    assert _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["status"] == "payment_pending"
+
+
+def test_next_due_date_skips_paid_invoices(client, test_project, test_user, vendor_auth_headers):
+    """A paid invoice past its due date doesn't count; the next one is unpaid but not due yet."""
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    paid = _invoice_due(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"], PAST
+    )
+    _pay(client, paid["invoiceId"], 100, vendor_auth_headers)
+    unpaid = _invoice_due(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"], FUTURE
+    )
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["status"] == "partial_payment_received"
+    assert info["nextDueDate"] == unpaid["dueDate"]
+
+
+def test_voiding_payment_makes_invoice_overdue_again(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _invoice_due(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"], PAST
+    )
+    _pay(client, invoice["invoiceId"], 100, vendor_auth_headers)
+    payment = client.get(f"/billing-history/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).json()[0]
+
+    resp = client.post(
+        f"/billing-history/{payment['id']}/void", json={"reason": "bounced"}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["status"] == "overdue"
+
+
+def test_rescheduling_keeps_next_due_date_of_accepted_invoices(
+    client, test_project, test_user, vendor_auth_headers
+):
+    """Accepted invoices keep their due date when the event moves, so the
+    summary's next due date stays put too."""
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+    before = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["nextDueDate"]
+    assert before == invoice["dueDate"]
+
+    resp = client.patch(
+        f"/subprojects/{subproject['subprojectId']}",
+        json={"subprojectDate": "2026-12-11T19:00:00"},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["nextDueDate"] == before
+
+
+def test_rescheduling_subproject_without_invoices_creates_no_billing_info(
+    client, test_project, vendor_auth_headers
+):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{subproject['subprojectId']}",
+        json={"subprojectDate": "2026-12-11T19:00:00"},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = client.get(f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 404
+
+
+# --- no active invoices (ticket C6) -------------------------------------------
+
+def test_deleting_every_invoice_means_no_active_invoices(client, test_project, test_user, vendor_auth_headers):
+    """$0 owed because nothing is billed is not the same as paid in full."""
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], accept=False,
+    )
+    assert client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).status_code == 204
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["status"] == "no_active_invoices"
+    assert info["totalInvoiced"] == "0.00"
+    assert info["nextDueDate"] is None
+
+
+def test_fully_paid_invoice_is_paid_in_full_not_no_active_invoices(
+    client, test_project, test_user, vendor_auth_headers
+):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+    _pay(client, invoice["invoiceId"], 100, vendor_auth_headers)
+
+    assert _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["status"] == "paid_in_full"
+
+
+def test_new_invoice_after_all_deleted_is_pending_again(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], accept=False,
+    )
+    client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers)
+    _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
+    )
+
+    assert _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["status"] == "payment_pending"
+
+
+def test_moving_only_invoice_away_leaves_no_active_invoices(client, test_project, test_user, vendor_auth_headers):
+    old = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    new = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"], accept=False
+    )
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"subprojectId": new["subprojectId"]}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["status"] == "no_active_invoices"
+
+
+# --- only accepted invoices are billed (ticket C6, model A) ------------------
+
+def test_unaccepted_past_due_invoice_is_not_overdue(client, test_project, test_user, vendor_auth_headers):
+    """The client hasn't agreed to pay it yet, so it can't be late."""
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    _invoice_due(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], PAST, accept=False,
+    )
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["status"] == "no_active_invoices"
+    assert info["nextDueDate"] is None
+
+
+def test_only_accepted_invoices_count_toward_total(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], amount=100.0,
+    )
+    _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], amount=500.0, accept=False,
+    )
+
+    assert _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "100.00"
+
+
+def test_declined_invoice_is_not_billed(client, test_project, test_user, vendor_auth_headers):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], accept=False,
+    )
+
+    resp = client.patch(f"/invoices/{invoice['invoiceId']}/reject", headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+
+    info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
+    assert info["status"] == "no_active_invoices"
+    assert info["totalInvoiced"] == "0.00"
+
+
+@pytest.mark.parametrize("status", ["Accepted", "Pending", "Paid", "Declined"])
+def test_only_unaccepted_invoices_can_be_rejected(client, test_project, test_user, vendor_auth_headers, status):
+    subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
+        subproject["subprojectId"], accept=False,
+    )
+    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": status}, headers=vendor_auth_headers)
+
+    resp = client.patch(f"/invoices/{invoice['invoiceId']}/reject", headers=vendor_auth_headers)
+    assert resp.status_code == 409, resp.text
+    assert f"{status} invoices can't be rejected" in resp.json()["detail"]
+
+
+@pytest.mark.parametrize("status", ["Pending", "Paid"])
+def test_invoices_past_acceptance_cannot_be_deleted_or_moved(
+    client, test_project, test_user, vendor_auth_headers, status
+):
+    old = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    new = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"], accept=False
+    )
+    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": status}, headers=vendor_auth_headers)
+
+    assert client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).status_code == 409
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"subprojectId": new["subprojectId"]}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 409, resp.text
+

@@ -13,7 +13,7 @@ SEED_VENDOR_PASSWORD, or prompted for. Refuses to run twice.
 import getpass
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -66,6 +66,8 @@ def _project_tree(db, org_id, vendor, client, name):
         invoiceAmount=compute_invoice_amount(10000.0, 25),
         invoiceAssignedTo=client.userId, projectAssociatedTo=project.projectId,
         subprojectId=subproject.subprojectId,
+        # the API's default: due 7 days before the event
+        dueDate=subproject.subprojectDate - timedelta(days=7),
     )
     db.add(invoice)
     db.flush()

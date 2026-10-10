@@ -1,9 +1,10 @@
 """Adds billing demo data on top of scripts/seed_tenant_demo.py.
 
 Each demo project ("Sharma Wedding" in Org A, "Iyer Reception" in Org B)
-gets a second subproject with its own invoice, and payments are recorded
-through services.billing_history.record_payment, so billing_history and
-billing_info are filled exactly as the API would fill them.
+gets a second subproject with its own invoice. Both invoices are accepted
+first, since payments can only be recorded on accepted invoices, then
+payments are recorded through services.billing_history.record_payment, so
+billing_history and billing_info are filled exactly as the API would fill them.
 
     DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5433/madras_menu_local \
         env/bin/python scripts/seed_billing_demo.py
@@ -12,7 +13,7 @@ Refuses to run twice.
 """
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal
 
@@ -49,6 +50,8 @@ def _add_mehendi(db, project):
         invoiceAmount=compute_invoice_amount(6000.0, 25),
         invoiceAssignedTo=client.userId, projectAssociatedTo=project.projectId,
         subprojectId=subproject.subprojectId,
+        # the API's default: due 7 days before the event
+        dueDate=subproject.subprojectDate - timedelta(days=7),
     )
     db.add(invoice)
     db.commit()
@@ -89,6 +92,9 @@ def main() -> None:
                 ("reception", reception_sub, reception_invoice),
                 ("mehendi", mehendi_sub, mehendi_invoice),
             ):
+                # the client accepts before paying; record_payment's recompute
+                # then counts the invoice
+                invoice.invoiceStatus = "Accepted"
                 for dollars in payments[label]:
                     entry = record_payment(invoice, amount=dollars, occurred_at=None,
                                            billing_metadata={"note": "demo seed"}, db=db)
