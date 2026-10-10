@@ -39,8 +39,9 @@ def test_creating_user_notifies_the_creator(client, vendor_auth_headers, test_ve
 
 
 def test_invoice_generated_notifies_the_billed_client(client, test_user, test_project, vendor_auth_headers, test_client_login):
+    # invoices can only be assigned to a project member (C7)
+    client.post(f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}", headers=vendor_auth_headers)
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 500.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],
@@ -56,8 +57,9 @@ def test_invoice_generated_notifies_the_billed_client(client, test_user, test_pr
 
 
 def test_mark_notification_read_sets_both_seen_and_read(client, test_user, test_project, vendor_auth_headers, test_client_login):
+    # invoices can only be assigned to a project member (C7)
+    client.post(f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}", headers=vendor_auth_headers)
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 100.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],
@@ -83,8 +85,9 @@ def test_mark_notification_read_sets_both_seen_and_read(client, test_user, test_
 
 
 def test_mark_notification_seen_does_not_mark_it_read(client, test_user, test_project, vendor_auth_headers, test_client_login):
+    # invoices can only be assigned to a project member (C7)
+    client.post(f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}", headers=vendor_auth_headers)
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 100.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],
@@ -110,7 +113,6 @@ def test_mark_notification_seen_does_not_mark_it_read(client, test_user, test_pr
 def test_cannot_mark_another_users_notification(client, test_vendor_login, test_client_login, vendor_auth_headers):
     project = _project(client, test_vendor_login["userId"], test_client_login["userId"], vendor_auth_headers)
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 100.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],

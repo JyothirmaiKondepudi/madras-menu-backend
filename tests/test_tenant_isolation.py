@@ -37,7 +37,6 @@ def _project_body(vendor_id, name="Org A Project"):
 
 def _invoice_body(project_id, user_id, **overrides):
     body = {
-        "invoiceStatus": "Generated",
         "totalAmount": 1000.0,
         "depositPercentage": 25,
         "invoiceAssignedTo": user_id,
@@ -116,6 +115,8 @@ def org_b(client, vendor_b):
     subproject = client.post(
         "/subprojects", json=_subproject_body(project["projectId"]), headers=b
     ).json()
+    # invoices can only be assigned to a project member (C7)
+    client.post(f"/projects/{project['projectId']}/users/{vendor_b['userId']}", headers=b)
     invoice = client.post(
         "/invoices",
         json=_invoice_body(
@@ -352,6 +353,8 @@ def _org_b_payment(client, vendor_b):
     subproject = client.post(
         "/subprojects", json=_subproject_body(project["projectId"]), headers=b
     ).json()
+    # invoices can only be assigned to a project member (C7)
+    client.post(f"/projects/{project['projectId']}/users/{vendor_b['userId']}", headers=b)
     invoice = client.post(
         "/invoices",
         json=_invoice_body(

@@ -87,7 +87,6 @@ def test_subproject_created_writes_activity(client, test_project, vendor_auth_he
 
 def test_invoice_generated_writes_activity(client, test_user, test_project, vendor_auth_headers, engine):
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 250.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": test_user["userId"],
@@ -107,7 +106,6 @@ def test_invoice_accepted_writes_activity_with_client_as_actor(
         client, test_vendor_login["userId"], test_client_login["userId"], vendor_auth_headers
     )
     invoice = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 100.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],
@@ -132,7 +130,6 @@ def test_invoice_declined_writes_no_activity(
         client, test_vendor_login["userId"], test_client_login["userId"], vendor_auth_headers
     )
     invoice = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 100.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],

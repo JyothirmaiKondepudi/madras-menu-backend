@@ -6,13 +6,53 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from services.account_activity import record_activity
+from services.invoice_status import (
+    COUNTED_INVOICE_STATUSES,
+    EDITABLE_INVOICE_STATUSES,
+    change_invoice_status,
+)
 
-# Invoices are billed once the client accepts them: these count toward
-# billing_info and can take payments. Until then the vendor can still
-# reject, delete or move them, or shift their due date. What Pending means
-# is decided in ticket C7.
-COUNTED_INVOICE_STATUSES = ("Accepted", "Pending", "Paid")
-EDITABLE_INVOICE_STATUSES = ("Generated", "Assigned")
+
+class PaymentError(ValueError):
+    """The payment can't be recorded on this invoice."""
+
+
+def net_paid_on(invoice_id):
+    """What's been paid on one invoice: successful payments minus refunds,
+    ignoring voided rows. A SQL expression, so it works both for a single
+    invoice id and correlated against Invoice.invoiceId in a larger query."""
+
+    def total(event_type):
+        return (
+            select(func.coalesce(func.sum(BillingHistory.amount), 0))
+            .where(
+                BillingHistory.invoiceId == invoice_id,
+                BillingHistory.eventType == event_type,
+                BillingHistory.voidedAt.is_(None),
+            )
+            .scalar_subquery()
+        )
+
+    return total("Payment_Succeeded") - total("Refund_Issued")
+
+
+def _remaining_balance(invoice: Invoice, db: Session):
+    return invoice.invoiceAmount - db.execute(select(net_paid_on(invoice.invoiceId))).scalar_one()
+
+
+def lock_invoice(invoice: Invoice, db: Session) -> Invoice:
+    """Locks the invoice row until the caller commits, so two payments (or a
+    payment and a void, or two accepts) on the same invoice run one after the
+    other and each sees the other's result. populate_existing re-reads the row, in case its
+    status changed while this request was waiting for the lock. Pending
+    changes are flushed first, or that re-read would throw them away."""
+    db.flush()
+    return db.execute(
+        select(Invoice)
+        .where(Invoice.invoiceId == invoice.invoiceId)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
 
 
 def count_live_payments(invoice_id, db: Session) -> int:
@@ -125,6 +165,7 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
         )
         .on_conflict_do_nothing(index_elements=[BillingInfo.subprojectId])
     )
+    # lock the record
     info = db.execute(
         select(BillingInfo)
         .where(BillingInfo.subprojectId == subproject_id)
@@ -176,25 +217,13 @@ def _recompute_billing_info(subproject_id, db: Session) -> None:
 
     # earliest due date among invoices that still owe money (net of
     # refunds); the read side compares it with now to report overdue
-    def paid_on_invoice(event_type):
-        return (
-            select(func.coalesce(func.sum(BillingHistory.amount), 0))
-            .where(
-                BillingHistory.invoiceId == Invoice.invoiceId,
-                BillingHistory.eventType == event_type,
-                BillingHistory.voidedAt.is_(None),
-            )
-            .scalar_subquery()
-        )
-
     next_due_date = db.execute(
         select(func.min(Invoice.dueDate)).where(
             Invoice.subprojectId == subproject_id,
             Invoice.invoiceDeletedAt.is_(None),
             Invoice.dueDate.is_not(None),
             Invoice.invoiceStatus.in_(COUNTED_INVOICE_STATUSES),
-            paid_on_invoice("Payment_Succeeded") - paid_on_invoice("Refund_Issued")
-            < Invoice.invoiceAmount,
+            net_paid_on(Invoice.invoiceId) < Invoice.invoiceAmount,
         )
     ).scalar_one()
 
@@ -215,7 +244,24 @@ def record_payment(
     the vendor manually recording an offline payment (cash, check, bank
     transfer), not a Stripe webhook. Updates billing_info in the same
     transaction so the summary is never momentarily out of sync with the
-    log that produced it."""
+    log that produced it.
+
+    Only accepted invoices take payments, never more than what's left to pay,
+    and the payment that brings the balance to zero marks the invoice Paid.
+    Both checks run after the invoice row is locked: two payments arriving
+    together could otherwise each see the same balance and both get through.
+    Raises PaymentError."""
+    invoice = lock_invoice(invoice, db)
+    if invoice.invoiceStatus not in COUNTED_INVOICE_STATUSES:
+        raise PaymentError("The client must accept this invoice before payments can be recorded.")
+    balance = _remaining_balance(invoice, db)
+    if amount > balance:
+        raise PaymentError(
+            "This invoice is already paid in full."
+            if balance <= 0
+            else f"The payment is more than the remaining balance of ${balance:,.2f}."
+        )
+
     entry = BillingHistory(
         invoiceId=invoice.invoiceId,
         eventType="Payment_Succeeded",
@@ -225,10 +271,12 @@ def record_payment(
         billingMetadata=billing_metadata,
     )
     db.add(entry)
+    db.flush()  # so the sums below see this row
 
     if invoice.subprojectId is not None:
-        db.flush()  # so the SUM query below sees this row
         _recompute_billing_info(invoice.subprojectId, db)
+    if amount == balance:
+        change_invoice_status(invoice, "Paid")
 
     db.commit()
     db.refresh(entry)
@@ -240,13 +288,20 @@ def void_payment(
 ) -> BillingHistory:
     """Marks a payment recorded by mistake as void. The row stays in the
     history; it just stops counting toward the billing totals. The route has
-    already checked that the payment can be voided."""
+    already checked that the payment can be voided.
+
+    If the invoice was Paid and the void leaves something owing, it goes
+    back to Accepted. Locks the invoice like record_payment, so a void and a
+    payment on the same invoice can't interleave."""
+    invoice = lock_invoice(invoice, db)
     payment.voidedAt = datetime.now(timezone.utc)
     payment.voidedReason = reason
+    db.flush()  # so the sums below leave this payment out
 
     if invoice.subprojectId is not None:
-        db.flush()  # so the recompute leaves this payment out
         _recompute_billing_info(invoice.subprojectId, db)
+    if invoice.invoiceStatus == "Paid" and _remaining_balance(invoice, db) > 0:
+        change_invoice_status(invoice, "Accepted")
 
     db.commit()
     db.refresh(payment)

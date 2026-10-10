@@ -31,7 +31,6 @@ def _subproject(client, project_id, headers):
 
 def _invoice(client, project_id, user_id, headers, subproject_id=None):
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 100.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": user_id,
@@ -137,6 +136,7 @@ def test_vendor_on_a_project_cannot_be_deleted(client, test_project, test_user, 
 
 def test_user_with_invoices_cannot_be_deleted(client, test_project, vendor_auth_headers):
     other = _client_user(client, vendor_auth_headers, "billed.client@example.com")
+    client.post(f"/projects/{test_project['projectId']}/users/{other['userId']}", headers=vendor_auth_headers)
     _invoice(client, test_project["projectId"], other["userId"], vendor_auth_headers)
 
     resp = client.delete(f"/users/{other['userId']}", headers=vendor_auth_headers)

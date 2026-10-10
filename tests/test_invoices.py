@@ -1,6 +1,8 @@
+import pytest
+
+
 def _invoice_body(project_id, user_id, **overrides):
     body = {
-        "invoiceStatus": "Generated",
         "totalAmount": 100.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": user_id,
@@ -117,10 +119,45 @@ def test_update_invoice(client, test_user, test_project, vendor_auth_headers):
     ).json()
 
     resp = client.patch(
+        f"/invoices/{created['invoiceId']}", json={"totalAmount": 200.0}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoiceAmount"] == "200.00"
+
+
+# --- invoice status lifecycle (ticket C7) ------------------------------------
+
+def test_new_invoice_starts_assigned_whatever_status_is_sent(client, test_user, test_project, vendor_auth_headers):
+    resp = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceStatus="Paid"),
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoiceStatus"] == "Assigned"
+
+
+def test_patch_cannot_change_status(client, test_user, test_project, vendor_auth_headers):
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=vendor_auth_headers
+    ).json()
+
+    resp = client.patch(
         f"/invoices/{created['invoiceId']}", json={"invoiceStatus": "Paid"}, headers=vendor_auth_headers
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["invoiceStatus"] == "Paid"
+    assert resp.json()["invoiceStatus"] == "Assigned"
+
+
+def test_declined_invoice_is_final(client, test_user, test_project, vendor_auth_headers):
+    created = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=vendor_auth_headers
+    ).json()
+    client.patch(f"/invoices/{created['invoiceId']}/reject", headers=vendor_auth_headers)
+
+    resp = client.patch(f"/invoices/{created['invoiceId']}/accept", headers=vendor_auth_headers)
+    assert resp.status_code == 409, resp.text
+    assert "Declined invoices can't be changed to Accepted" in resp.json()["detail"]
 
 
 def test_update_invoice_regenerates_pdf(client, test_user, test_project, vendor_auth_headers):
@@ -181,9 +218,10 @@ def test_deleted_invoice_is_hidden_but_kept(client, engine, test_user, test_proj
 def test_accepted_invoice_cannot_be_deleted(client, test_user, test_project, vendor_auth_headers):
     created = client.post(
         "/invoices",
-        json=_invoice_body(test_project["projectId"], test_user["userId"], invoiceStatus="Accepted"),
+        json=_invoice_body(test_project["projectId"], test_user["userId"]),
         headers=vendor_auth_headers,
     ).json()
+    client.patch(f"/invoices/{created['invoiceId']}/accept", headers=vendor_auth_headers)
     resp = client.delete(f"/invoices/{created['invoiceId']}", headers=vendor_auth_headers)
     assert resp.status_code == 409
     assert client.get(f"/invoices/{created['invoiceId']}", headers=vendor_auth_headers).status_code == 200
@@ -397,7 +435,7 @@ def test_invoice_audit_timestamps(client, test_user, test_project, vendor_auth_h
     assert created_at.tzinfo is not None
 
     resp = client.patch(
-        f"/invoices/{created['invoiceId']}", json={"invoiceStatus": "Assigned"}, headers=vendor_auth_headers
+        f"/invoices/{created['invoiceId']}", json={"totalAmount": 150.0}, headers=vendor_auth_headers
     )
     assert resp.status_code == 200, resp.text
     assert datetime.fromisoformat(resp.json()["createdAt"]) == created_at
@@ -571,7 +609,7 @@ def test_rescheduling_keeps_due_dates_of_accepted_and_paid_invoices(
 ):
     subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
     accepted = _invoice_on(client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"])
-    client.patch(f"/invoices/{accepted['invoiceId']}", json={"invoiceStatus": "Accepted"}, headers=vendor_auth_headers)
+    client.patch(f"/invoices/{accepted['invoiceId']}/accept", headers=vendor_auth_headers)
     paid = _invoice_on(client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"])
     client.patch(f"/invoices/{paid['invoiceId']}/accept", headers=vendor_auth_headers)
     client.post(
@@ -604,3 +642,244 @@ def test_updating_subproject_without_new_date_keeps_due_dates(client, test_user,
     assert resp.status_code == 200, resp.text
 
     assert _due_date(client, invoice["invoiceId"], vendor_auth_headers) == "2026-11-25T00:00:00"
+
+
+# --- invoice relationships (ticket C7) ---------------------------------------
+
+def _org_client(client, headers, email):
+    """A client in the vendor's org who isn't linked to any project."""
+    resp = client.post("/users", json={
+        "fullName": "Unlinked Client",
+        "email": email,
+        "phoneNumber": "5550007777",
+        "preferredContact": "email",
+        "role": "client",
+    }, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _other_project(client, test_user, headers):
+    resp = client.post("/projects", json={
+        "projectName": "Other Project",
+        "projectStatus": "Proposal",
+        "projectStartDate": "2026-11-14T18:00:00",
+        "projectEndDate": "2026-11-14T23:00:00",
+        "vendorOnProject": test_user["userId"],
+    }, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_invoice_cannot_be_assigned_to_a_non_member(client, test_project, vendor_auth_headers):
+    outsider = _org_client(client, vendor_auth_headers, "outsider@example.com")
+
+    resp = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], outsider["userId"]), headers=vendor_auth_headers
+    )
+    assert resp.status_code == 422, resp.text
+    assert "member of its project" in resp.json()["detail"]
+
+
+def test_invoice_can_be_assigned_once_the_client_is_linked(client, test_project, vendor_auth_headers):
+    member = _org_client(client, vendor_auth_headers, "member@example.com")
+    client.post(f"/projects/{test_project['projectId']}/users/{member['userId']}", headers=vendor_auth_headers)
+
+    resp = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], member["userId"]), headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_invoice_cannot_be_reassigned_to_a_non_member(client, test_user, test_project, vendor_auth_headers):
+    invoice = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=vendor_auth_headers
+    ).json()
+    outsider = _org_client(client, vendor_auth_headers, "outsider@example.com")
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"invoiceAssignedTo": outsider["userId"]}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 422, resp.text
+
+    client.post(f"/projects/{test_project['projectId']}/users/{outsider['userId']}", headers=vendor_auth_headers)
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"invoiceAssignedTo": outsider["userId"]}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoiceAssignedTo"] == outsider["userId"]
+
+
+def test_invoice_cannot_use_another_projects_subproject(client, test_user, test_project, vendor_auth_headers):
+    other = _other_project(client, test_user, vendor_auth_headers)
+    other_subproject = _create_subproject(client, other["projectId"], vendor_auth_headers)
+
+    resp = client.post(
+        "/invoices",
+        json=_invoice_body(
+            test_project["projectId"], test_user["userId"], subprojectId=other_subproject["subprojectId"]
+        ),
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 404, resp.text
+
+
+def _insert_invoice(engine, **columns):
+    """Writes an invoice straight to the database, skipping the API checks."""
+    from decimal import Decimal
+    from uuid import UUID
+
+    from sqlalchemy.orm import Session
+
+    from models import Invoice
+
+    with Session(engine) as db:
+        db.add(Invoice(
+            invoiceStatus="Assigned",
+            invoiceAmount=Decimal("100.00"),
+            **{key: UUID(value) if isinstance(value, str) else value for key, value in columns.items()},
+        ))
+        db.commit()
+
+
+def test_database_rejects_invoice_for_a_non_member(client, engine, test_project, vendor_auth_headers):
+    from sqlalchemy.exc import IntegrityError
+
+    outsider = _org_client(client, vendor_auth_headers, "outsider@example.com")
+
+    with pytest.raises(IntegrityError, match="invoices_assignee_project_member_fkey"):
+        _insert_invoice(
+            engine, invoiceAssignedTo=outsider["userId"], projectAssociatedTo=test_project["projectId"]
+        )
+
+
+def test_database_rejects_invoice_with_another_projects_subproject(
+    client, engine, test_user, test_project, vendor_auth_headers
+):
+    from sqlalchemy.exc import IntegrityError
+
+    other = _other_project(client, test_user, vendor_auth_headers)
+    other_subproject = _create_subproject(client, other["projectId"], vendor_auth_headers)
+
+    with pytest.raises(IntegrityError, match="invoices_subproject_in_project_fkey"):
+        _insert_invoice(
+            engine,
+            invoiceAssignedTo=test_user["userId"],
+            projectAssociatedTo=test_project["projectId"],
+            subprojectId=other_subproject["subprojectId"],
+        )
+
+
+def test_database_accepts_project_level_invoice_for_a_member(engine, test_user, test_project):
+    """Null subproject_id skips the subproject check; the member check still passes."""
+    _insert_invoice(engine, invoiceAssignedTo=test_user["userId"], projectAssociatedTo=test_project["projectId"])
+
+
+# --- accept and reject are idempotent (ticket C7) ----------------------------
+
+def _notifications_for(engine, invoice_id, kind):
+    from uuid import UUID
+
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import Session
+
+    from models import Notification
+
+    with Session(engine) as db:
+        return db.scalar(
+            select(func.count()).select_from(Notification).where(
+                Notification.relatedInvoiceId == UUID(invoice_id), Notification.type == kind
+            )
+        )
+
+
+@pytest.mark.parametrize("action, status, kind", [
+    ("accept", "Accepted", "invoice_accepted"),
+    ("reject", "Declined", "invoice_declined"),
+])
+def test_repeating_an_answer_succeeds_without_notifying_again(
+    client, engine, test_vendor_login, test_client_login, vendor_auth_headers, action, status, kind
+):
+    project = _project_with_vendor_and_client(
+        client, test_vendor_login["userId"], test_client_login["userId"], vendor_auth_headers
+    )
+    invoice = client.post(
+        "/invoices", json=_invoice_body(project["projectId"], test_client_login["userId"]), headers=vendor_auth_headers
+    ).json()
+    client_headers = {"Authorization": f"Bearer {_login(client, test_client_login['userEmail'])}"}
+
+    for _ in range(2):  # e.g. a double-click, or a retried request
+        resp = client.patch(f"/invoices/{invoice['invoiceId']}/{action}", headers=client_headers)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["invoiceStatus"] == status
+
+    # one for the client, one for the vendor; nothing from the repeat
+    assert _notifications_for(engine, invoice["invoiceId"], kind) == 2
+
+
+def test_client_and_vendor_accepting_together_notifies_once(
+    client, engine, test_vendor_login, test_client_login, vendor_auth_headers
+):
+    """Both accept at the same moment: the second waits for the first's lock
+    on the invoice, then sees it's already Accepted and does nothing."""
+    import threading
+    from uuid import UUID
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from models import Invoice
+    from services.invoices import respond_to_invoice
+
+    project = _project_with_vendor_and_client(
+        client, test_vendor_login["userId"], test_client_login["userId"], vendor_auth_headers
+    )
+    invoice_id = client.post(
+        "/invoices", json=_invoice_body(project["projectId"], test_client_login["userId"]), headers=vendor_auth_headers
+    ).json()["invoiceId"]
+
+    errors = []
+
+    def second_accept():
+        with Session(engine) as db:
+            try:
+                respond_to_invoice(db.get(Invoice, UUID(invoice_id)), "Accepted", db)
+            except Exception as exc:  # surfaced in the main thread below
+                errors.append(exc)
+
+    # closed in the with block even if an assertion fails, or the table
+    # cleanup after the test would wait on its lock forever
+    with Session(engine) as first:
+        invoice = first.get(Invoice, UUID(invoice_id))
+        # respond_to_invoice commits, so hold the lock by hand while the
+        # second accept starts and has to wait for it
+        first.execute(select(Invoice).where(Invoice.invoiceId == invoice.invoiceId).with_for_update())
+        thread = threading.Thread(target=second_accept)
+        thread.start()
+        thread.join(timeout=1)
+        waited = thread.is_alive()
+        respond_to_invoice(invoice, "Accepted", first)  # commits, releasing the lock
+
+    thread.join(timeout=10)
+    assert waited, "second accept didn't wait for the invoice lock"
+    assert not errors, errors  # the repeat succeeds rather than failing as an invalid move
+    assert _notifications_for(engine, invoice_id, "invoice_accepted") == 2
+
+
+
+def test_client_cannot_be_removed_from_an_invoice(client, test_user, test_project, vendor_auth_headers):
+    """An explicit null used to reach the NOT NULL column and return a 500."""
+    invoice = client.post(
+        "/invoices", json=_invoice_body(test_project["projectId"], test_user["userId"]), headers=vendor_auth_headers
+    ).json()
+
+    resp = client.patch(
+        f"/invoices/{invoice['invoiceId']}", json={"invoiceAssignedTo": None}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 422, resp.text
+    assert "must stay assigned to a client" in resp.text
+
+    # leaving the field out still works, and keeps the client
+    resp = client.patch(f"/invoices/{invoice['invoiceId']}", json={"totalAmount": 150.0}, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoiceAssignedTo"] == test_user["userId"]
