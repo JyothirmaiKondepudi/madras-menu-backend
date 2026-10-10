@@ -1,42 +1,76 @@
-from models import Project, User
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from models import Organization, Project, User, user_projects, Subproject, Invoice
+from sqlalchemy import select, func
+from uuid import UUID
+from sqlalchemy.orm import Session, selectinload
 from schemas.project import ProjectUpdate
+from services.account_activity import record_activity
+from services.notifications import create_notification
+from services.timezones import effective_timezone, to_instant
 
 
-def get_all_projects(db:Session):
-    return db.execute(select(Project)).scalars().all()
+def get_all_projects(organization_id, db: Session):
+    """All projects in the given organization."""
+    return (
+        db.execute(
+            select(Project)
+            .where(Project.organizationId == organization_id)
+            .options(selectinload(Project.users))
+        )
+        .scalars()
+        .all()
+    )
 
-def get_project_by_id(project_id, db:Session):
+
+def get_project_by_id(project_id, db: Session):
     return db.get(Project, project_id)
 
-def add_new_Project(newProject, db:Session):
 
+def add_new_Project(newProject, db: Session, organization_id=None, actor_id=None):
+    # times without an offset are local to the venue: the project's timezone, else the org's
+    timezone = (
+        newProject.projectTimezone or db.get(Organization, organization_id).orgTimezone
+    )
     created_Project = Project(
         projectName=newProject.projectName,
         projectStatus=newProject.projectStatus,
-        projectStartDate=newProject.projectStartDate,
-        projectEndDate=newProject.projectEndDate,
+        projectStartDate=to_instant(newProject.projectStartDate, timezone),
+        projectEndDate=to_instant(newProject.projectEndDate, timezone),
         vendorOnProject=newProject.vendorOnProject,
-        clientId=newProject.clientId,
+        organizationId=organization_id,
+        projectTimezone=newProject.projectTimezone,
     )
     db.add(created_Project)
     db.commit()
-    print(f"commited to database succesfully")
     db.refresh(created_Project)
+    record_activity(
+        db,
+        activity_type="project_created",
+        description=f'Project "{created_Project.projectName}" was created',
+        project_id=created_Project.projectId,
+        actor_id=actor_id,
+    )
     return created_Project
+
 
 def update_project_by_project_id(project_id, updates: ProjectUpdate, db: Session):
     project = db.get(Project, project_id)
     if project is None:
         return None
 
-    for field, value in updates.model_dump(exclude_unset=True).items():
+    changes = updates.model_dump(exclude_unset=True)
+    # apply a timezone change first, so dates in the same request are read in it
+    if "projectTimezone" in changes:
+        project.projectTimezone = changes.pop("projectTimezone")
+    for field in ("projectStartDate", "projectEndDate"):
+        if field in changes:
+            changes[field] = to_instant(changes[field], effective_timezone(project))
+    for field, value in changes.items():
         setattr(project, field, value)
 
     db.commit()
     db.refresh(project)
     return project
+
 
 def delete_Project_by_Project_id(project_id, db: Session):
     project = db.get(Project, project_id)
@@ -47,36 +81,83 @@ def delete_Project_by_Project_id(project_id, db: Session):
     db.commit()
     return project
 
-def get_all_projects_by_user_id(user_id, db:Session):
-    return db.execute(
-        select(Project).where(Project.clientId == user_id)
-    ).scalars().all()
+
+def get_all_projects_by_user_id(user_id, db: Session):
+    """Projects the user is linked to via user_projects."""
+    return (
+        db.execute(
+            select(Project)
+            .join(user_projects, user_projects.c.project_id == Project.projectId)
+            .where(user_projects.c.user_id == user_id)
+            .options(selectinload(Project.users))
+        )
+        .scalars()
+        .all()
+    )
+
 
 def set_final_invoice(project: Project, invoice_id, db: Session) -> Project:
-    """Points project.finalInvoiceId at invoice_id. The caller (route layer)
-    is responsible for confirming invoice_id actually exists and belongs
-    to this project before calling this — this function just performs the
-    write, matching how add_user_to_project separates "is this valid" from
-    "make it so.\""""
+    """Sets project.finalInvoiceId. The caller must validate the invoice
+    belongs to this project."""
     project.finalInvoiceId = invoice_id
     db.commit()
     db.refresh(project)
     return project
 
-def add_user_to_project(project_id, user_id, db: Session):
-    """Links an already-existing user to an already-existing project via
-    user_projects — the "add an existing client" action. Returns None if
-    either id doesn't exist. Idempotent: linking an already-linked user
-    again is a no-op, not a conflict."""
-    project = db.get(Project, project_id)
-    if project is None:
-        return None
-    user = db.get(User, user_id)
-    if user is None:
-        return None
+
+def add_user_to_project(project: Project, user: User, db: Session, actor_id=None):
+    """Links a user to a project via user_projects. The caller must check
+    both are in its org. Idempotent: re-linking is a silent no-op."""
 
     if user not in project.users:
+        existing_clients = list(project.users)
         project.users.append(user)
         db.commit()
         db.refresh(project)
+        record_activity(
+            db,
+            activity_type="project_assigned",
+            description=f'{user.fullName} was added to project "{project.projectName}"',
+            project_id=project.projectId,
+            actor_id=actor_id,
+        )
+        # Notify the vendor and the clients already on the project — never
+        # the newly added user about their own addition.
+        if (
+            project.vendorOnProject is not None
+            and project.vendorOnProject != user.userId
+        ):
+            create_notification(
+                db,
+                user_id=project.vendorOnProject,
+                type="project_user_added",
+                message=f'{user.fullName} was added to project "{project.projectName}"',
+                related_user_id=user.userId,
+            )
+        for existing in existing_clients:
+            create_notification(
+                db,
+                user_id=existing.userId,
+                type="project_user_added",
+                message=f'{user.fullName} was added to your project "{project.projectName}"',
+                related_user_id=user.userId,
+            )
     return project
+
+
+def get_sub_project_count(project_id: UUID, db: Session):
+    return db.scalar(
+        select(func.count())
+        .select_from(Subproject)
+        .where(Subproject.projectAssociatedTo == project_id)
+    )
+
+
+def get_invoice_count(project_id: UUID, db: Session):
+    return db.scalar(
+        select(func.count())
+        .select_from(Invoice)
+        .where(Invoice.projectAssociatedTo == project_id)
+        # soft-deleted invoices still block the delete in the database, so count them
+        .execution_options(include_deleted=True)
+    )

@@ -3,6 +3,7 @@ import os
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
+from uuid import UUID
 from langchain_ollama import OllamaEmbeddings
 
 from models import MenuItem
@@ -29,7 +30,9 @@ def generate_embedding(text: str) -> list[float]:
     return _embeddings_client.embed_query(text)
 
 
-def upsert_embedding(db: Session, item_id: str, embedding: list[float], embedded_text: str) -> MenuItemEmbedding:
+def upsert_embedding(
+    db: Session, item_id: UUID, embedding: list[float], embedded_text: str
+) -> MenuItemEmbedding:
     """Insert or replace — regenerating an existing dish's embedding (its
     name/tags changed, or it's just being re-run) updates the row rather
     than failing on the primary key."""
@@ -38,14 +41,17 @@ def upsert_embedding(db: Session, item_id: str, embedding: list[float], embedded
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=["item_id"],
-        set_={"embedding": stmt.excluded.embedding, "embedded_text": stmt.excluded.embedded_text},
+        set_={
+            "embedding": stmt.excluded.embedding,
+            "embedded_text": stmt.excluded.embedded_text,
+        },
     )
     db.execute(stmt)
     db.commit()
     return db.get(MenuItemEmbedding, item_id)
 
 
-def embed_menu_item(db: Session, item_id: str) -> MenuItemEmbedding | None:
+def embed_menu_item(db: Session, item_id: UUID) -> MenuItemEmbedding | None:
     """Returns None if item_id doesn't exist — the route turns that into a
     404, same pattern as every other single-item route in this app."""
     item = db.get(MenuItem, item_id)

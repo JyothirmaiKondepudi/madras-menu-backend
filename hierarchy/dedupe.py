@@ -1,18 +1,6 @@
-"""
-Exact-duplicate detection, run BEFORE any LLM hierarchy call.
-
-Two items whose names are identical once case/whitespace-normalized are
-the same real-world dish written differently (e.g. the real
-"Aloo baingan masala" vs "Aloo Baingan Masala" pair found in the live
-catalog) — that's a data-quality / merge problem, not a parent_of
-hierarchy relationship, and it doesn't need an LLM to detect. Catching it
-here, deterministically, also means the LLM's prompt (and any future
-per-item cost at real scale) isn't wasted on redundant near-identical rows.
-
-Only ONE representative per duplicate cluster gets sent on to hierarchy
-classification; the rest are reported separately as merge candidates for a
-human to actually resolve (this script never merges/deletes anything).
-"""
+"""Finds items whose names are the same once case/whitespace-normalized 
+(e.g. "Aloo baingan masala" vs "Aloo Baingan Masala") before they 
+reach LLM hierarchy classification."""
 
 import re
 
@@ -22,12 +10,8 @@ def _normalize(name: str) -> str:
 
 
 def find_duplicate_clusters(items: list[dict]) -> tuple[list[list[dict]], list[dict]]:
-    """
-    Returns (duplicate_clusters, items_for_classification).
-    duplicate_clusters: groups of 2+ items that normalize to the same name.
-    items_for_classification: one representative per normalized name
-    (the first one seen) — i.e. every distinct dish, deduplicated.
-    """
+    """Returns (duplicate_clusters, items_for_classification): groups of 2+ items
+    sharing a normalized name, and one representative per group."""
     by_normalized: dict[str, list[dict]] = {}
     for item in items:
         by_normalized.setdefault(_normalize(item["name"]), []).append(item)

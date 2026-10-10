@@ -1,17 +1,12 @@
 import os
 
-# Must be set before importing anything that reads DATABASE_URL at import
-# time (database.py does, via os.environ.get at module load).
+# Must be set before database.py reads DATABASE_URL at import time.
 os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/madras_menu_test"
 )
-# auth/security.py needs a SECRET_KEY to sign/verify JWTs — tests don't
-# load .env.local (nothing in this app does; see database.py), so give it
-# a fixed, obviously-fake default rather than letting every auth test fail
-# with a None signing key when run outside a real dev environment.
+# auth/security.py needs a SECRET_KEY to sign/verify JWTs; tests don't load .env.local
 os.environ.setdefault("SECRET_KEY", "test-secret-key-do-not-use-in-production")
-# services/invoice_pdf.py writes real PDF files — point tests at a throwaway
-# temp directory instead of the repo's real storage/invoices folder.
+# services/invoice_pdf.py writes real PDF files — use a throwaway temp dir
 import tempfile
 os.environ.setdefault("INVOICE_PDF_DIR", tempfile.mkdtemp(prefix="madras_test_invoices_"))
 
@@ -28,31 +23,21 @@ from auth.permissions import PERMISSIONS, ROLE_PERMISSIONS
 
 TEST_DATABASE_URL = os.environ["DATABASE_URL"]
 
-# Static reference data, not per-test state — seeded once for the whole
-# session (see the engine fixture) and deliberately excluded from
-# clean_tables' per-test TRUNCATE below, or every test after the first
-# would run with zero permissions granted to any role.
+# Seeded once per session (see engine fixture); excluded from clean_tables'
+# per-test TRUNCATE, or every test after the first would have no permissions.
 _REFERENCE_TABLES = {"permissions", "role_permissions"}
 
 
 @pytest.fixture(scope="session")
 def engine():
     eng = create_engine(TEST_DATABASE_URL)
-    # menu_item_embeddings needs the pgvector extension — enabled on
-    # madras_menu_local via the Docker init script at first container boot,
-    # but never automatically on a separately-created test database. Without
-    # this, Base.metadata.create_all() below fails with "type vector does
-    # not exist" the first time a fresh test DB is used (hit for real: a
-    # freshly-created madras_menu_test on this machine didn't have it).
+    # menu_item_embeddings needs pgvector, which isn't auto-enabled on a fresh test DB
     with eng.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(eng)
 
-    # Base.metadata.create_all() only builds the schema — it doesn't run
-    # Alembic migrations, so the real migration's seed data (every
-    # permission, all granted to "vendor") never runs here. Re-seed from the
-    # same auth.permissions module the migration imports from, so the two
-    # can't drift apart.
+    # create_all() only builds the schema, it doesn't run the Alembic migration's seed
+    # data — reseed from the same auth.permissions module the migration imports from
     with eng.begin() as conn:
         permission_ids = {}
         for name, description in PERMISSIONS:
@@ -76,14 +61,10 @@ def engine():
 
 @pytest.fixture(autouse=True)
 def clean_tables(engine):
-    """Runs after every test — wipes every table this app owns (except the
-    static reference tables above), so tests never see another test's
-    leftovers. TRUNCATE ... CASCADE, not a per-table DELETE in
-    sorted_tables order — projects.final_invoice_id and
-    invoices.project_associated_to form a real FK cycle between those two
-    tables, and a test that actually sets finalInvoiceId (test_set_final_invoice)
-    creates a genuine circular row reference that no single delete order can
-    satisfy. CASCADE sidesteps the ordering question entirely."""
+    """Wipes every table (except the reference tables above) after each test.
+    Uses TRUNCATE ... CASCADE rather than per-table DELETE because projects
+    and invoices have a circular FK (final_invoice_id / project_associated_to)
+    that no single delete order can satisfy."""
     yield
     table_names = ", ".join(
         table.name for table in Base.metadata.tables.values() if table.name not in _REFERENCE_TABLES
@@ -110,23 +91,25 @@ def client(engine):
 
 @pytest.fixture()
 def test_vendor_login(engine):
-    """The one bootstrap vendor every other fixture/test authenticates as.
-    Created directly against the DB, NOT via POST /users — that route is
-    itself vendor-only now, so creating the very first vendor has to happen
-    out-of-band, the same real bootstrapping step a production deployment
-    of this app would need once (see auth plan)."""
+    """The bootstrap vendor every other fixture/test authenticates as. Created
+    directly in the DB, not via POST /users, since that route is vendor-only."""
     from sqlalchemy.orm import sessionmaker
-    from models import User
+    from models import Organization, User
     from auth.security import hash_password
 
     Session = sessionmaker(bind=engine)
     db = Session()
+    # every user needs an org, so the org goes in first (same as scripts/seed_dev.py)
+    org = Organization(orgName="Test Vendor Org", orgEmail="test.vendor.org@example.com", orgDisabled=False)
+    db.add(org)
+    db.flush()
     vendor = User(
         fullName="Login Test Vendor",
         userEmail="login.vendor@example.com",
         userPhoneNumber="5550003333",
         preferredContact="email",
         userRole="vendor",
+        userOrg=org.orgId,
         passwordHash=hash_password("correct-horse-battery-staple"),
     )
     db.add(vendor)
@@ -137,18 +120,48 @@ def test_vendor_login(engine):
         "fullName": vendor.fullName,
         "userEmail": vendor.userEmail,
         "userRole": vendor.userRole,
+        "userOrg": str(vendor.userOrg),
     }
     db.close()
     return result
 
 
 @pytest.fixture()
+def platform_admin_headers(client, engine):
+    """Bearer headers for a platform admin in its own (super) org. The only
+    role allowed to create, list or delete organizations."""
+    from sqlalchemy.orm import sessionmaker
+    from models import Organization, User
+    from auth.security import hash_password
+
+    db = sessionmaker(bind=engine)()
+    org = Organization(orgName="Platform Org", orgEmail="platform.org@example.com", orgDisabled=False)
+    db.add(org)
+    db.flush()
+    db.add(User(
+        fullName="Platform Admin",
+        userEmail="platform.admin@example.com",
+        userPhoneNumber="5550004444",
+        preferredContact="email",
+        userRole="platform_admin",
+        userOrg=org.orgId,
+        passwordHash=hash_password("correct-horse-battery-staple"),
+    ))
+    db.commit()
+    db.close()
+
+    resp = client.post("/auth/login", json={
+        "email": "platform.admin@example.com",
+        "password": "correct-horse-battery-staple",
+    })
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+@pytest.fixture()
 def vendor_auth_headers(client, test_vendor_login):
-    """Bearer headers for a vendor — the common case for tests that just
-    need *some* authenticated, unrestricted caller and aren't themselves
-    testing authorization scoping. Also what every other fixture below
-    uses to create its own test data, now that POST /users/POST /projects/
-    POST /menu-items etc. all require a vendor."""
+    """Bearer headers for a vendor — the default authenticated caller for tests
+    that aren't themselves testing authorization scoping."""
     resp = client.post("/auth/login", json={
         "email": test_vendor_login["userEmail"],
         "password": "correct-horse-battery-staple",
@@ -178,17 +191,20 @@ def test_project(client, test_user, vendor_auth_headers):
         "projectStartDate": "2026-11-01T18:00:00",
         "projectEndDate": "2026-11-01T23:00:00",
         "vendorOnProject": test_user["userId"],
-        "clientId": test_user["userId"],
     }, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    # clients are linked after creation, via user_projects
+    resp = client.post(
+        f"/projects/{resp.json()['projectId']}/users/{test_user['userId']}", headers=vendor_auth_headers
+    )
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
 @pytest.fixture()
 def test_client_login(client, vendor_auth_headers):
-    """A client-role user with a real password set — for auth/project-
-    authorization tests that need to actually log in, unlike the plain
-    test_user fixture (which has no password and can't)."""
+    """A client-role user with a real password, for tests that need to log in
+    (unlike test_user, which has no password)."""
     resp = client.post("/users", json={
         "fullName": "Login Test Client",
         "email": "login.client@example.com",

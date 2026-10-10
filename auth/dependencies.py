@@ -1,17 +1,15 @@
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Permission, RolePermission
+from uuid import UUID
+from models import User, Permission, RolePermission, Project, Subproject, Invoice
 from auth.security import decode_access_token
 
-# HTTPBearer, not OAuth2PasswordBearer — login here is a JSON body
-# (LoginRequest), not OAuth2's form-encoded username/password, so
-# OAuth2PasswordBearer would make Swagger's "Authorize" button assume the
-# wrong request shape for this API.
+# HTTPBearer, not OAuth2PasswordBearer — login uses a JSON body, not form-encoded fields
 _bearer_scheme = HTTPBearer()
 
 _UNAUTHORIZED = HTTPException(
@@ -22,6 +20,7 @@ _UNAUTHORIZED = HTTPException(
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -30,45 +29,41 @@ def get_current_user(
     except jwt.PyJWTError:
         raise _UNAUTHORIZED
 
-    # Re-fetched from the DB on every request, rather than trusting
-    # anything beyond the user id out of the token — a role change or a
-    # deleted account takes effect immediately this way, not just once the
-    # token happens to expire.
+    # Re-fetched every request so role changes/deletions apply immediately
     user = db.get(User, user_id)
     if user is None:
         raise _UNAUTHORIZED
+    if user.userDisabled:
+        raise HTTPException(status_code=401, detail="User disabled")
+    request.state.user_id = user.userId
+    request.state.org_id = user.userOrg
     return user
 
 
 def user_has_permission(user: User, permission_name: str, db: Session) -> bool:
-    """Table-driven check against role_permissions/permissions — replaces
-    a hardcoded "is this user vendor" test everywhere in the app. A role
-    with no matching row simply has no permissions; nothing is implicitly
-    vendor. This is the one place this lookup is written, so every route
-    checking a permission agrees on what it means."""
-    return db.execute(
-        select(RolePermission)
-        .join(Permission, Permission.id == RolePermission.permissionId)
-        .where(RolePermission.role == user.userRole, Permission.name == permission_name)
-    ).first() is not None
+    """Table-driven permission check against role_permissions/permissions."""
+    return (
+        db.execute(
+            select(RolePermission)
+            .join(Permission, Permission.id == RolePermission.permissionId)
+            .where(
+                RolePermission.role == user.userRole, Permission.name == permission_name
+            )
+        ).first()
+        is not None
+    )
 
 
 def require_permission(permission_name: str):
-    """Factory — Depends(require_permission("project:create")). The
-    table-driven replacement for a hardcoded vendor check: each route
-    names the specific permission it needs, so granting a future role
-    (staff, chef) a subset of vendor's capabilities is a data change
-    (new role_permissions rows) rather than a code change. Distinct from
-    the per-resource scoping checks (user_project_ids, invoiceAssignedTo)
-    used on routes where a user CAN see a restricted slice of a resource
-    they don't have blanket permission for."""
+    """Dependency factory: Depends(require_permission("project:create"))."""
 
     def _dependency(
         current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
     ) -> User:
         if not user_has_permission(current_user, permission_name, db):
             raise HTTPException(
-                status_code=403, detail=f"missing required permission: {permission_name}"
+                status_code=403,
+                detail=f"missing required permission: {permission_name}",
             )
         return current_user
 
@@ -76,8 +71,57 @@ def require_permission(permission_name: str):
 
 
 def user_project_ids(user: User) -> set:
-    """The set of project ids this user is linked to via user_projects —
-    the one place this lookup is written, so every route scoping by
-    project access (projects/services/invoices) agrees on what "yours"
-    means. Irrelevant for vendors, who bypass this check entirely."""
+    """Project ids this user is linked to via user_projects."""
     return {p.projectId for p in user.projects}
+
+
+def load_project_in_org(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Project:
+    project = db.get(Project, project_id)
+    if project is None or project.organizationId != current_user.userOrg:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+def load_user_in_org(
+    user_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    user = db.get(User, user_id)
+    if user is None or user.userOrg != current_user.userOrg:
+        raise HTTPException(status_code=404, detail="user not found")
+    return user
+
+
+def load_subproject_in_org(
+    subproject_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Subproject:
+    sub_project = db.get(Subproject, subproject_id)
+    if (
+        sub_project is None
+        or sub_project.project.organizationId != current_user.userOrg
+    ):
+        raise HTTPException(status_code=404, detail="sub project not found")
+    return sub_project
+
+
+def load_invoice_in_org(
+    invoice_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Invoice:
+    invoice = db.get(Invoice, invoice_id)
+    if (
+        invoice is None
+        # db.get can return an already-loaded row without the soft-delete filter
+        or invoice.invoiceDeletedAt is not None
+        or invoice.project.organizationId != current_user.userOrg
+    ):
+        raise HTTPException(status_code=404, detail="invoice not found")
+    return invoice

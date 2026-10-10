@@ -1,3 +1,8 @@
+import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
+
 def _subproject_body(project_id):
     return {
         "subprojectName": "Wedding Reception Dinner",
@@ -36,7 +41,7 @@ def test_create_subproject_requires_vendor(client, test_project, test_client_log
     assert resp.status_code == 403
 
 
-def test_get_subproject_includes_nested_project_and_client(client, test_project, vendor_auth_headers):
+def test_get_subproject_includes_nested_project_and_client(client, test_user, test_project, vendor_auth_headers):
     created = client.post(
         "/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers
     ).json()
@@ -45,7 +50,7 @@ def test_get_subproject_includes_nested_project_and_client(client, test_project,
     assert resp.status_code == 200
     body = resp.json()
     assert body["project"]["projectId"] == test_project["projectId"]
-    assert body["project"]["client"]["userId"] == test_project["clientId"]
+    assert [c["userId"] for c in body["project"]["clients"]] == [test_user["userId"]]
 
 
 def test_get_subprojects_by_project_id(client, test_project, vendor_auth_headers):
@@ -85,3 +90,33 @@ def test_client_only_sees_subprojects_for_linked_projects(client, test_project, 
     )
     resp = client.get("/subprojects", headers={"Authorization": f"Bearer {token}"})
     assert len(resp.json()) == 1
+
+
+def test_corrected_choice_values_are_accepted(client, test_project, vendor_auth_headers):
+    body = _subproject_body(test_project["projectId"])
+    body.update(subprojectVenue="Museum", subprojectEvent="Cocktail Hour")
+    resp = client.post("/subprojects", json=body, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["subprojectVenue"] == "Museum"
+    assert resp.json()["subprojectEvent"] == "Cocktail Hour"
+
+
+def test_old_misspelled_choice_values_are_rejected(client, test_project, vendor_auth_headers):
+    for field, old_value in [("subprojectVenue", "Mueseum"), ("subprojectEvent", "cockatail hour")]:
+        body = _subproject_body(test_project["projectId"])
+        body[field] = old_value
+        resp = client.post("/subprojects", json=body, headers=vendor_auth_headers)
+        assert resp.status_code == 422, (field, resp.text)
+
+
+def test_database_rejects_values_outside_the_choices(engine, client, test_project, vendor_auth_headers):
+    # the CHECK constraint is the backstop for anything that skips the schemas
+    created = client.post(
+        "/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers
+    ).json()
+    with pytest.raises(IntegrityError, match="subprojects_venue_check"):
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE subprojects SET venue = 'Mueseum' WHERE subproject_id = :id"),
+                {"id": created["subprojectId"]},
+            )

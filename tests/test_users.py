@@ -97,3 +97,56 @@ def test_delete_user(client, test_user, vendor_auth_headers):
 def test_delete_nonexistent_user_returns_404(client, vendor_auth_headers):
     resp = client.delete("/users/00000000-0000-0000-0000-000000000000", headers=vendor_auth_headers)
     assert resp.status_code == 404
+
+
+def test_created_user_inherits_vendor_org(client, vendor_auth_headers, test_vendor_login):
+    resp = client.post("/users", json={
+        "fullName": "Org Member",
+        "email": "org.member@example.com",
+        "phoneNumber": "5551234567",
+        "preferredContact": "email",
+        "role": "client",
+    }, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["userOrg"] == test_vendor_login["userOrg"]
+
+
+def test_create_user_ignores_client_supplied_org(client, vendor_auth_headers, test_vendor_login):
+    resp = client.post("/users", json={
+        "fullName": "Org Hopper",
+        "email": "org.hopper@example.com",
+        "phoneNumber": "5551234567",
+        "preferredContact": "email",
+        "role": "client",
+        "userOrg": "00000000-0000-0000-0000-000000000000",
+    }, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["userOrg"] == test_vendor_login["userOrg"]
+
+
+def _new_platform_admin_body(email):
+    return {
+        "fullName": "New Admin",
+        "email": email,
+        "phoneNumber": "5551234567",
+        "preferredContact": "email",
+        "role": "platform_admin",
+    }
+
+
+def test_vendor_cannot_create_platform_admin(client, vendor_auth_headers):
+    resp = client.post("/users", json=_new_platform_admin_body("sneaky.admin@example.com"), headers=vendor_auth_headers)
+    assert resp.status_code == 403
+
+
+def test_platform_admin_can_create_platform_admin(client, platform_admin_headers):
+    me = client.get("/auth/me", headers=platform_admin_headers).json()
+    resp = client.post("/users", json=_new_platform_admin_body("second.admin@example.com"), headers=platform_admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["userRole"] == "platform_admin"
+    assert resp.json()["userOrg"] == me["userOrg"]  # lands in the platform's own org
+
+
+def test_unknown_role_rejected(client, vendor_auth_headers):
+    body = _new_platform_admin_body("wizard@example.com") | {"role": "wizard"}
+    assert client.post("/users", json=body, headers=vendor_auth_headers).status_code == 422

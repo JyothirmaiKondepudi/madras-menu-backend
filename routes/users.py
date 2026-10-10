@@ -4,51 +4,151 @@ from fastapi import APIRouter, Depends, HTTPException
 from models import User
 from schemas.user import UserOut, UserCreate, UserUpdate
 from database import get_db
-from auth.dependencies import get_current_user, require_permission, user_has_permission
+from auth.dependencies import (
+    get_current_user,
+    require_permission,
+    user_has_permission,
+    load_user_in_org,
+)
 from uuid import UUID
 
 router = APIRouter()
 
-@router.get("/users", response_model=list[UserOut], dependencies=[Depends(require_permission("user:list"))])
-def get_users(db: Session = Depends(get_db)):
-    users = get_all_users(db)
+
+@router.get(
+    "/users",
+    response_model=list[UserOut],
+    dependencies=[Depends(require_permission("user:list"))],
+)
+def get_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    users = get_all_users(db, current_user.userOrg)
     return users
+
 
 @router.get("/users/{user_id}", response_model=UserOut)
 def get_user_by_id(
-    user_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user: User = Depends(load_user_in_org),
 ):
-     if not user_has_permission(current_user, "user:view_all", db) and user_id != current_user.userId:
-         raise HTTPException(status_code=403, detail="cannot view another user's profile")
-     user = get_user_by_user_id(user_id, db)
-     if user is None:
-         raise HTTPException(status_code=404, detail="User not found")
-     return user
+    if (
+        not user_has_permission(current_user, "user:view_all", db)
+        and user_id != current_user.userId
+    ):
+        raise HTTPException(
+            status_code=403, detail="cannot view another user's profile"
+        )
+    user = get_user_by_user_id(user_id, db)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
-@router.post("/users", response_model=UserOut, dependencies=[Depends(require_permission("user:create"))])
+
+@router.post(
+    "/users",
+    response_model=UserOut,
+    dependencies=[Depends(require_permission("user:create"))],
+)
 def add_user(
-    new_user: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    new_user: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-     # current_user is used here (unlike the unused-vendor pattern elsewhere)
-     # — it's who gets notified as "the one who sent this invite," so it
-     # stays a real function parameter, not just a dependencies=[] gate.
-     created_user = add_new_user(new_user, db, created_by=current_user.userId)
-     if created_user is None:
-         raise HTTPException(status_code=409, detail=f"user with email {new_user.email} already exists")
-     return created_user
+    # current_user is used here (unlike the unused-vendor pattern elsewhere)
+    # — it's who gets notified as "the one who sent this invite," so it
+    # stays a real function parameter, not just a dependencies=[] gate.
+    if new_user.role == "platform_admin" and not user_has_permission(
+        current_user, "user:grant_platform_admin", db
+    ):
+        raise HTTPException(
+            status_code=403, detail="not allowed to create platform admins"
+        )
+    created_user = add_new_user(new_user, db, created_by=current_user)
+    if created_user is None:
+        raise HTTPException(
+            status_code=409, detail=f"user with email {new_user.email} already exists"
+        )
+    return created_user
 
-@router.patch("/users/{user_id}", response_model=UserOut, dependencies=[Depends(require_permission("user:update"))])
+
+@router.patch(
+    "/users/{user_id}",
+    response_model=UserOut,
+    dependencies=[Depends(require_permission("user:update"))],
+)
 def update_user(
     user_id: UUID,
     updates: UserUpdate,
-    db: Session = Depends(get_db)):
+    db: Session = Depends(get_db),
+    user: User = Depends(load_user_in_org),
+):
     updated_user = update_user_by_user_id(user_id, updates, db)
     if updated_user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return updated_user
 
-@router.delete("/users/{user_id}", status_code=204, dependencies=[Depends(require_permission("user:delete"))])
-def delete_user(user_id: UUID, db: Session = Depends(get_db)):
+
+@router.post(
+    "/users/{user_id}/disable",
+    response_model=UserOut,
+    dependencies=[Depends(require_permission("user:disable"))],
+)
+def disable_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    user: User = Depends(load_user_in_org),
+):
+    if current_user.userId == user_id:
+        raise HTTPException(
+            status_code=400, detail="You can't disable your own account."
+        )
+    updated_user = disable_user_by_id(user_id, db)
+    if updated_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated_user
+
+
+@router.post(
+    "/users/{user_id}/enable",
+    response_model=UserOut,
+    dependencies=[Depends(require_permission("user:disable"))],
+)
+def enable_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(load_user_in_org),
+):
+    updated_user = enable_user_by_id(user_id, db)
+    if updated_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated_user
+
+
+@router.delete(
+    "/users/{user_id}",
+    status_code=204,
+    dependencies=[Depends(require_permission("user:delete"))],
+)
+def delete_user(
+    user_id: UUID, db: Session = Depends(get_db), user: User = Depends(load_user_in_org)
+):
+    project_count = get_project_count_for_user(user_id, db)
+    if project_count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This user is the vendor on {project_count} projects. Please disable the user instead.",
+        )
+    pending_invoice_count = get_invoice_for_user(user_id, db)
+    if pending_invoice_count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This user has {pending_invoice_count} invoices. Please disable the user instead.",
+        )
     deleted_user = delete_user_by_user_id(user_id, db)
     if deleted_user is None:
         raise HTTPException(status_code=404, detail="User not found")
