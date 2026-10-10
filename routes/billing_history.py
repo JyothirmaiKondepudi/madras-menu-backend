@@ -36,18 +36,17 @@ def record_payment_made(
         or invoice.project.organizationId != current_user.userOrg
     ):
         raise HTTPException(status_code=404, detail="invoice not found")
-    if invoice.invoiceStatus not in COUNTED_INVOICE_STATUSES:
-        raise HTTPException(
-            status_code=409,
-            detail="The client must accept this invoice before payments can be recorded.",
+    try:
+        return record_payment(
+            invoice,
+            amount=new_payment.amount,
+            occurred_at=new_payment.occurredAt,
+            billing_metadata=new_payment.billingMetadata,
+            db=db,
         )
-    return record_payment(
-        invoice,
-        amount=new_payment.amount,
-        occurred_at=new_payment.occurredAt,
-        billing_metadata=new_payment.billingMetadata,
-        db=db,
-    )
+    except PaymentError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.post(

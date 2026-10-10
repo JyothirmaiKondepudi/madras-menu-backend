@@ -96,7 +96,6 @@ def test_invalid_timezone_rejected(client, vendor_auth_headers, test_user):
 
 def test_payment_time_without_offset_rejected(client, vendor_auth_headers, test_user, test_project):
     invoice = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 100,
         "depositPercentage": 100,
         "invoiceAssignedTo": test_user["userId"],

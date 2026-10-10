@@ -8,7 +8,8 @@ from services.invoice_pdf import generate_invoice_pdf
 from services.notifications import create_notification
 from services.account_activity import record_activity
 from services.timezones import to_instant
-from services.billing_history import _recompute_billing_info
+from services.billing_history import _recompute_billing_info, lock_invoice
+from services.invoice_status import InvoiceStatusError, change_invoice_status
 from datetime import datetime, timezone, timedelta
 
 # InvoiceOut nests project -> client/vendor, same reasoning as
@@ -92,7 +93,7 @@ def add_new_invoice(new_invoice, db: Session, actor_id=None):
     else:
         time_zone = db.get(Project, new_invoice.projectAssociatedTo).effectiveTimezone
     created_invoice = Invoice(
-        invoiceStatus=new_invoice.invoiceStatus,
+        invoiceStatus="Assigned",
         invoiceAmount=compute_invoice_amount(
             new_invoice.totalAmount, new_invoice.depositPercentage
         ),
@@ -181,7 +182,18 @@ def respond_to_invoice(
     invoice. Notifies BOTH the client (invoiceAssignedTo) and the
     project's vendor — regardless of which of the two performed the
     action, per the basic design: "each gets a notification.\" """
-    invoice.invoiceStatus = new_status
+    # Idempotent: repeating an answer already given (a double-click, a retried
+    # request, client and vendor both accepting) returns the invoice as it is
+    # and sends nothing. Checked under the invoice lock, so two simultaneous
+    # accepts can't both see Assigned and both notify.
+    invoice = lock_invoice(invoice, db)
+    if invoice.invoiceStatus == new_status:
+        db.commit()  # nothing changed; releases the lock
+        return invoice
+
+    # raises InvoiceStatusError if the invoice can't move there (e.g. it's
+    # already been accepted, paid or declined)
+    change_invoice_status(invoice, new_status)
     if invoice.subprojectId is not None:
         db.flush()
         _recompute_billing_info(invoice.subprojectId, db)

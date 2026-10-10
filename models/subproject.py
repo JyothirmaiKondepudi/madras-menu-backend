@@ -8,6 +8,7 @@ from sqlalchemy import (
     func,
     ARRAY,
     Numeric,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -32,6 +33,13 @@ class Subproject(Base):
         CheckConstraint(
             check_in("subproject_event", EventType),
             name="subprojects_subproject_event_check",
+        ),
+        # invoices point at (subproject_id, project_associated_to) to prove the
+        # subproject is in the invoice's project; a foreign key needs a unique target
+        UniqueConstraint(
+            "subproject_id",
+            "project_associated_to",
+            name="subprojects_subproject_id_project_associated_to_key",
         ),
     )
 

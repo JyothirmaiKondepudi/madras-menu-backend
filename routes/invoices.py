@@ -65,6 +65,26 @@ def getinvoiceById(
     return invoice
 
 
+def ensure_project_member(project: Project, user_id: UUID) -> None:
+    """The billed client has to be linked to the invoice's project. The
+    database enforces this too (invoices_assignee_project_member_fkey); this
+    check runs first so the caller gets a clear 422 instead of a 500."""
+    if not any(user.userId == user_id for user in project.users):
+        raise HTTPException(
+            status_code=422,
+            detail="The invoice can only be assigned to a member of its project.",
+        )
+
+
+def _respond(invoice: Invoice, new_status: str, db: Session, current_user: User):
+    """Accept or reject, allowed only from where the transitions table says."""
+    try:
+        return respond_to_invoice(invoice, new_status, db, actor_id=current_user.userId)
+    except InvoiceStatusError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 @router.post(
     "/invoices",
     response_model=InvoiceOut,
@@ -75,11 +95,11 @@ def add_invoice(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if new_invoice.invoiceAssignedTo is not None:
-        load_user_in_org(new_invoice.invoiceAssignedTo, current_user, db)
-        project = db.get(Project, new_invoice.projectAssociatedTo)
+    project = db.get(Project, new_invoice.projectAssociatedTo)
     if project is None or project.organizationId != current_user.userOrg:
         raise HTTPException(status_code=404, detail="project not found")
+    load_user_in_org(new_invoice.invoiceAssignedTo, current_user, db)
+    ensure_project_member(project, new_invoice.invoiceAssignedTo)
 
     if new_invoice.subprojectId is not None:
         subproject = db.get(Subproject, new_invoice.subprojectId)
@@ -105,6 +125,7 @@ def update_invoice(
 ):
     if updates.invoiceAssignedTo is not None:
         load_user_in_org(updates.invoiceAssignedTo, current_user, db)
+        ensure_project_member(invoice.project, updates.invoiceAssignedTo)
 
     if updates.subprojectId is not None:
         subproject = db.get(Subproject, updates.subprojectId)
@@ -188,7 +209,7 @@ def accept_invoice(
         raise HTTPException(
             status_code=403, detail="not authorized to respond to this invoice"
         )
-    return respond_to_invoice(invoice, "Accepted", db, actor_id=current_user.userId)
+    return _respond(invoice, "Accepted", db, current_user)
 
 
 @router.patch("/invoices/{invoice_id}/reject", response_model=InvoiceOut)
@@ -208,12 +229,7 @@ def reject_invoice(
         raise HTTPException(
             status_code=403, detail="not authorized to respond to this invoice"
         )
-    if invoice.invoiceStatus not in EDITABLE_INVOICE_STATUSES:
-        raise HTTPException(
-            status_code=409,
-            detail=f"{invoice.invoiceStatus} invoices can't be rejected.",
-        )
-    return respond_to_invoice(invoice, "Declined", db, actor_id=current_user.userId)
+    return _respond(invoice, "Declined", db, current_user)
 
 
 @router.get("/invoices/{invoice_id}/pdf")

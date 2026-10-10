@@ -28,7 +28,6 @@ def _create_invoice(client, project_id, user_id, headers, subproject_id, amount=
     resp = client.post(
         "/invoices",
         json={
-            "invoiceStatus": "Generated",
             "totalAmount": amount,
             "depositPercentage": 100,
             "invoiceAssignedTo": user_id,
@@ -192,7 +191,6 @@ def test_project_level_invoice_does_not_create_billing_info(client, test_project
     resp = client.post(
         "/invoices",
         json={
-            "invoiceStatus": "Generated",
             "totalAmount": 100.0,
             "depositPercentage": 100,
             "invoiceAssignedTo": test_user["userId"],
@@ -303,7 +301,6 @@ def test_accepted_invoice_can_still_be_edited_without_moving(client, test_projec
     invoice = _create_invoice(
         client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"]
     )
-    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": "Accepted"}, headers=vendor_auth_headers)
 
     # sending the subproject it's already on isn't a move
     resp = client.patch(
@@ -384,7 +381,6 @@ def _invoice_due(client, project_id, user_id, headers, subproject_id, due_date, 
     resp = client.post(
         "/invoices",
         json={
-            "invoiceStatus": "Generated",
             "totalAmount": amount,
             "depositPercentage": 100,
             "invoiceAssignedTo": user_id,
@@ -614,21 +610,31 @@ def test_declined_invoice_is_not_billed(client, test_project, test_user, vendor_
     assert info["totalInvoiced"] == "0.00"
 
 
-@pytest.mark.parametrize("status", ["Accepted", "Pending", "Paid", "Declined"])
-def test_only_unaccepted_invoices_can_be_rejected(client, test_project, test_user, vendor_auth_headers, status):
+def _move_to(client, invoice_id, status, headers, amount=100):
+    """Reaches a status the way the app does: accept, reject, or pay in full."""
+    if status == "Declined":
+        client.patch(f"/invoices/{invoice_id}/reject", headers=headers)
+        return
+    client.patch(f"/invoices/{invoice_id}/accept", headers=headers)
+    if status == "Paid":
+        _pay(client, invoice_id, amount, headers)
+
+
+@pytest.mark.parametrize("status", ["Accepted", "Paid"])
+def test_only_assigned_invoices_can_be_rejected(client, test_project, test_user, vendor_auth_headers, status):
     subproject = _create_subproject(client, test_project["projectId"], vendor_auth_headers)
     invoice = _create_invoice(
         client, test_project["projectId"], test_user["userId"], vendor_auth_headers,
         subproject["subprojectId"], accept=False,
     )
-    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": status}, headers=vendor_auth_headers)
+    _move_to(client, invoice["invoiceId"], status, vendor_auth_headers)
 
     resp = client.patch(f"/invoices/{invoice['invoiceId']}/reject", headers=vendor_auth_headers)
     assert resp.status_code == 409, resp.text
-    assert f"{status} invoices can't be rejected" in resp.json()["detail"]
+    assert f"{status} invoices can't be changed to Declined" in resp.json()["detail"]
 
 
-@pytest.mark.parametrize("status", ["Pending", "Paid"])
+@pytest.mark.parametrize("status", ["Accepted", "Paid"])
 def test_invoices_past_acceptance_cannot_be_deleted_or_moved(
     client, test_project, test_user, vendor_auth_headers, status
 ):
@@ -637,11 +643,10 @@ def test_invoices_past_acceptance_cannot_be_deleted_or_moved(
     invoice = _create_invoice(
         client, test_project["projectId"], test_user["userId"], vendor_auth_headers, old["subprojectId"], accept=False
     )
-    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": status}, headers=vendor_auth_headers)
+    _move_to(client, invoice["invoiceId"], status, vendor_auth_headers)
 
     assert client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).status_code == 409
     resp = client.patch(
         f"/invoices/{invoice['invoiceId']}", json={"subprojectId": new["subprojectId"]}, headers=vendor_auth_headers
     )
     assert resp.status_code == 409, resp.text
-

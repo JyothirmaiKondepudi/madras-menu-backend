@@ -62,7 +62,7 @@ def _project_tree(db, org_id, vendor, client, name):
     db.flush()
 
     invoice = Invoice(
-        invoiceStatus="Generated", totalAmount=10000.0, depositPercentage=25,
+        invoiceStatus="Assigned", totalAmount=10000.0, depositPercentage=25,
         invoiceAmount=compute_invoice_amount(10000.0, 25),
         invoiceAssignedTo=client.userId, projectAssociatedTo=project.projectId,
         subprojectId=subproject.subprojectId,

@@ -24,6 +24,7 @@ from sqlalchemy import select  # noqa: E402
 from database import SessionLocal  # noqa: E402
 from models import BillingHistory, BillingInfo, Invoice, Organization, Project, Subproject  # noqa: E402
 from services.billing_history import record_payment  # noqa: E402
+from services.invoice_status import change_invoice_status  # noqa: E402
 from services.invoices import compute_invoice_amount  # noqa: E402
 
 # demo orgs use the default org timezone, so event times are local to it
@@ -46,7 +47,7 @@ def _add_mehendi(db, project):
     db.flush()
     client = project.users[0]
     invoice = Invoice(
-        invoiceStatus="Generated", totalAmount=6000.0, depositPercentage=25,
+        invoiceStatus="Assigned", totalAmount=6000.0, depositPercentage=25,
         invoiceAmount=compute_invoice_amount(6000.0, 25),
         invoiceAssignedTo=client.userId, projectAssociatedTo=project.projectId,
         subprojectId=subproject.subprojectId,
@@ -94,7 +95,7 @@ def main() -> None:
             ):
                 # the client accepts before paying; record_payment's recompute
                 # then counts the invoice
-                invoice.invoiceStatus = "Accepted"
+                change_invoice_status(invoice, "Accepted")
                 for dollars in payments[label]:
                     entry = record_payment(invoice, amount=dollars, occurred_at=None,
                                            billing_metadata={"note": "demo seed"}, db=db)

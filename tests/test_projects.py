@@ -164,7 +164,6 @@ def test_add_user_to_project_nonexistent_user_404(client, test_project, vendor_a
 
 def _create_invoice(client, project_id, user_id, headers):
     return client.post("/invoices", json={
-        "invoiceStatus": "Generated",
         "totalAmount": 100.0,
         "depositPercentage": 100,
         "invoiceAssignedTo": user_id,
@@ -193,6 +192,7 @@ def test_set_final_invoice_rejects_invoice_from_another_project(
         "projectEndDate": "2026-11-14T23:00:00",
         "vendorOnProject": test_user["userId"],
     }, headers=vendor_auth_headers).json()
+    client.post(f"/projects/{other_project['projectId']}/users/{test_user['userId']}", headers=vendor_auth_headers)
     invoice_for_other_project = _create_invoice(
         client, other_project["projectId"], test_user["userId"], vendor_auth_headers
     )

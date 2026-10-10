@@ -19,7 +19,6 @@ def _subproject_body(project_id):
 
 def _invoice_body(project_id, user_id, subproject_id=None, amount=100.0):
     body = {
-        "invoiceStatus": "Generated",
         "totalAmount": amount,
         "depositPercentage": 100,
         "invoiceAssignedTo": user_id,
@@ -309,30 +308,119 @@ def test_accepted_invoice_cannot_be_deleted_even_after_voiding_its_payments(
     assert client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).status_code == 409
 
 
-# --- payments need an accepted invoice (ticket C6) ---------------------------
+# --- payments need an accepted invoice (C6); Paid follows the payments (C7) ---
 
-@pytest.mark.parametrize("status", ["Generated", "Assigned", "Declined"])
-def test_payment_rejected_until_invoice_is_accepted(client, test_project, test_user, vendor_auth_headers, status):
+def _invoice_status(client, invoice_id, headers):
+    return client.get(f"/invoices/{invoice_id}", headers=headers).json()["invoiceStatus"]
+
+
+def _try_pay(client, invoice_id, headers, amount):
+    return client.post("/billing-history/payments", json={"invoiceId": invoice_id, "amount": amount}, headers=headers)
+
+
+@pytest.mark.parametrize("action", [None, "reject"])
+def test_payment_rejected_until_invoice_is_accepted(client, test_project, test_user, vendor_auth_headers, action):
+    """Assigned (not answered yet) and Declined invoices don't take payments."""
     invoice = _create_invoice(
         client, test_project["projectId"], test_user["userId"], vendor_auth_headers, accept=False
     )
-    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": status}, headers=vendor_auth_headers)
+    if action:
+        client.patch(f"/invoices/{invoice['invoiceId']}/{action}", headers=vendor_auth_headers)
 
-    resp = client.post(
-        "/billing-history/payments", json={"invoiceId": invoice["invoiceId"], "amount": 10}, headers=vendor_auth_headers
-    )
+    resp = _try_pay(client, invoice["invoiceId"], vendor_auth_headers, 10)
     assert resp.status_code == 409, resp.text
     assert "accept" in resp.json()["detail"]
 
 
-@pytest.mark.parametrize("status", ["Accepted", "Pending", "Paid"])
-def test_payment_allowed_once_invoice_is_accepted(client, test_project, test_user, vendor_auth_headers, status):
-    invoice = _create_invoice(
-        client, test_project["projectId"], test_user["userId"], vendor_auth_headers, accept=False
-    )
-    client.patch(f"/invoices/{invoice['invoiceId']}", json={"invoiceStatus": status}, headers=vendor_auth_headers)
+def test_partial_payment_leaves_invoice_accepted(client, test_project, test_user, vendor_auth_headers):
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    _pay(client, invoice["invoiceId"], vendor_auth_headers, amount=60)
 
-    resp = client.post(
-        "/billing-history/payments", json={"invoiceId": invoice["invoiceId"], "amount": 10}, headers=vendor_auth_headers
+    assert _invoice_status(client, invoice["invoiceId"], vendor_auth_headers) == "Accepted"
+
+
+def test_payment_reaching_the_amount_marks_invoice_paid(client, test_project, test_user, vendor_auth_headers):
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    _pay(client, invoice["invoiceId"], vendor_auth_headers, amount=60)
+    _pay(client, invoice["invoiceId"], vendor_auth_headers, amount=40)
+
+    assert _invoice_status(client, invoice["invoiceId"], vendor_auth_headers) == "Paid"
+
+
+def test_payment_over_the_remaining_balance_is_rejected(client, test_project, test_user, vendor_auth_headers):
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    _pay(client, invoice["invoiceId"], vendor_auth_headers, amount=60)
+
+    resp = _try_pay(client, invoice["invoiceId"], vendor_auth_headers, 50)
+    assert resp.status_code == 409, resp.text
+    assert "remaining balance of $40.00" in resp.json()["detail"]
+    assert _invoice_status(client, invoice["invoiceId"], vendor_auth_headers) == "Accepted"
+
+
+def test_paid_invoice_takes_no_more_payments(client, test_project, test_user, vendor_auth_headers):
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    _pay(client, invoice["invoiceId"], vendor_auth_headers, amount=100)
+
+    resp = _try_pay(client, invoice["invoiceId"], vendor_auth_headers, 1)
+    assert resp.status_code == 409, resp.text
+    assert "already paid in full" in resp.json()["detail"]
+
+
+def test_voiding_a_payment_on_a_paid_invoice_reopens_it(client, test_project, test_user, vendor_auth_headers):
+    """The bounced cheque: Paid goes back to Accepted, and the money can be paid again."""
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    _pay(client, invoice["invoiceId"], vendor_auth_headers, amount=60)
+    bounced = _pay(client, invoice["invoiceId"], vendor_auth_headers, amount=40)
+    assert _invoice_status(client, invoice["invoiceId"], vendor_auth_headers) == "Paid"
+
+    assert _void(client, bounced["id"], vendor_auth_headers).status_code == 200
+    assert _invoice_status(client, invoice["invoiceId"], vendor_auth_headers) == "Accepted"
+
+    _pay(client, invoice["invoiceId"], vendor_auth_headers, amount=40)
+    assert _invoice_status(client, invoice["invoiceId"], vendor_auth_headers) == "Paid"
+
+
+def test_concurrent_payments_cannot_overpay(client, engine, test_project, test_user, vendor_auth_headers):
+    """Two $60 payments on a $100 invoice at the same moment: the second waits
+    for the first's lock on the invoice row, then sees only $40 left. Uses a
+    project-level invoice, which has no billing_info row, so the only thing
+    serializing them is the invoice lock."""
+    import threading
+    from uuid import UUID
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from models import Invoice
+    from services.billing_history import PaymentError, record_payment
+
+    invoice_id = UUID(
+        _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)["invoiceId"]
     )
-    assert resp.status_code == 200, resp.text
+    outcome = {}
+
+    def second_payment():
+        with Session(engine) as db:
+            try:
+                record_payment(db.get(Invoice, invoice_id), 60, None, None, db)
+                outcome["second"] = "recorded"
+            except PaymentError as exc:
+                outcome["second"] = str(exc)
+
+    # closed in the with block even if an assertion fails, or the table
+    # cleanup after the test would wait on its lock forever
+    with Session(engine) as first:
+        invoice = first.get(Invoice, invoice_id)
+        # record_payment commits, so lock the row by hand to hold it open
+        first.execute(
+            select(Invoice).where(Invoice.invoiceId == invoice_id).with_for_update()
+        )
+        thread = threading.Thread(target=second_payment)
+        thread.start()
+        thread.join(timeout=1)
+        waited = thread.is_alive()
+        record_payment(invoice, 60, None, None, first)  # commits, releasing the lock
+
+    thread.join(timeout=10)
+    assert waited, "second payment didn't wait for the invoice lock"
+    assert "remaining balance of $40.00" in outcome["second"]
