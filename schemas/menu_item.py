@@ -1,4 +1,5 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from decimal import Decimal
 from datetime import datetime
 from uuid import UUID
 
@@ -19,7 +20,7 @@ class MenuItemOut(BaseModel):
     spiceLevel: str | None = None
     prepMethod: str | None = None
     portionUnit: str | None = None
-    costPerPerson: float | None = None
+    costPerPerson: Decimal | None
     taxCategoryId: UUID | None = None
     active: bool
     confidence: str | None = None
@@ -45,7 +46,9 @@ class MenuItemCreate(BaseModel):
     spiceLevel: str | None = None
     prepMethod: str | None = None
     portionUnit: str | None = None
-    costPerPerson: float | None = None
+    costPerPerson: Decimal | None = Field(
+        default=None, ge=0, max_digits=8, decimal_places=2
+    )
     taxCategoryId: UUID | None = None
     active: bool = True
     confidence: str | None = None
@@ -67,7 +70,9 @@ class MenuItemUpdate(BaseModel):
     spiceLevel: str | None = None
     prepMethod: str | None = None
     portionUnit: str | None = None
-    costPerPerson: float | None = None
+    costPerPerson: Decimal | None = Field(
+        default=None, ge=0, max_digits=8, decimal_places=2
+    )
     taxCategoryId: UUID | None = None
     active: bool | None = None
     confidence: str | None = None

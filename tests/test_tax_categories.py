@@ -1,5 +1,7 @@
 import uuid
 
+import pytest
+
 
 def test_create_tax_category(client, vendor_auth_headers):
     resp = client.post("/tax-categories", json={
@@ -50,3 +52,32 @@ def test_delete_tax_category(client, vendor_auth_headers):
     resp = client.delete(f"/tax-categories/{created['id']}", headers=vendor_auth_headers)
     assert resp.status_code == 204
     assert client.get(f"/tax-categories/{created['id']}", headers=vendor_auth_headers).status_code == 404
+
+
+def _tax_body(**overrides):
+    return {"name": "prepared_food", "jurisdiction": "FL", "ratePercent": "7.000", **overrides}
+
+
+def test_rate_percent_is_exact_and_sent_as_a_string(client, vendor_auth_headers):
+    resp = client.post("/tax-categories", json=_tax_body(ratePercent="7.125"), headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ratePercent"] == "7.125"
+
+
+@pytest.mark.parametrize("bad_rate", [
+    "-1",       # negative
+    "100.001",  # over 100%
+    "7.1234",   # more than 3 decimal places: the column would round it
+])
+def test_invalid_rate_percent_rejected_on_create(client, vendor_auth_headers, bad_rate):
+    resp = client.post("/tax-categories", json=_tax_body(ratePercent=bad_rate), headers=vendor_auth_headers)
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.parametrize("bad_rate", ["-1", "100.001", "7.1234"])
+def test_invalid_rate_percent_rejected_on_update(client, vendor_auth_headers, bad_rate):
+    created = client.post("/tax-categories", json=_tax_body(), headers=vendor_auth_headers).json()
+    resp = client.patch(
+        f"/tax-categories/{created['id']}", json={"ratePercent": bad_rate}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 422, resp.text
