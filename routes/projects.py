@@ -1,8 +1,7 @@
 from sqlalchemy.orm import Session
 from services.projects import *
-from services.invoices import get_invoice_by_id
 from fastapi import APIRouter, Depends, HTTPException
-from models import Project, User
+from models import Project, User, Invoice
 from schemas.project import ProjectOut, ProjectCreate, ProjectUpdate
 from database import get_db
 from auth.dependencies import (
@@ -12,6 +11,7 @@ from auth.dependencies import (
     user_has_permission,
     load_project_in_org,
     load_user_in_org,
+    load_invoice_in_org,
 )
 from uuid import UUID
 
@@ -61,22 +61,17 @@ def set_project_final_invoice(
     project_id: UUID,
     invoice_id: UUID,
     db: Session = Depends(get_db),
+    invoice: Invoice = Depends(load_invoice_in_org),
     project: Project = Depends(load_project_in_org),
 ):
     """Records which invoice the client actually went ahead with — a
     project can have several (drafts/revisions), so this is never inferred
     automatically, only set explicitly here."""
-    project_info = get_project_by_id(project_id, db)
-    if project_info is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    invoice = get_invoice_by_id(invoice_id, db)
-    if invoice is None:
-        raise HTTPException(status_code=404, detail="invoice not found")
     if invoice.projectAssociatedTo != project_id:
         raise HTTPException(
             status_code=400, detail="that invoice does not belong to this project"
         )
-    return set_final_invoice(project_info, invoice_id, db)
+    return set_final_invoice(project, invoice_id, db)
 
 
 @router.get("/projects/users/{user_id}", response_model=list[ProjectOut])
