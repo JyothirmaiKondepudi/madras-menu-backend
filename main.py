@@ -1,7 +1,9 @@
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, OperationalError
 from starlette.concurrency import run_in_threadpool
 import time
@@ -24,10 +26,13 @@ from routes.billing_info import router as billing_info_router
 from routes.organizations import router as org_router
 from services.api_log_activity import record_api_log
 from hierarchy.mutations import HierarchyError
+from database import get_db
 from config import get_settings
 
 # fail at startup, listing every missing or invalid setting (see config.py)
 settings = get_settings()
+
+_UNLOGGED_PATHS = {"/", "/db/health"}
 
 # Schema is managed by Alembic migrations — run `alembic upgrade head` after changing a model.
 
@@ -62,6 +67,8 @@ def _client_ip(request: Request) -> str | None:
 
 @app.middleware("http")
 async def log_api_activity(request: Request, call_next):
+    if request.url.path in _UNLOGGED_PATHS:
+        return await call_next(request)
     start = time.perf_counter()
     request_id = uuid.uuid4()
     status_code, error = 500, None
@@ -97,6 +104,7 @@ async def log_api_activity(request: Request, call_next):
             ipAddress=_client_ip(request),
             error=error,
         )
+
 
 CORS_ORIGINS = settings.CORS_ORIGINS
 
@@ -182,6 +190,13 @@ def handle_unexpected_error(request: Request, exc: Exception):
     )
 
 
+@app.get("/db/health")
+def db_health_status(db: Session = Depends(get_db)):
+    db.execute(select(1))
+    return {"status": "ok"}
+
+
 @app.get("/")
 def health_status():
+
     return {"status": "ok"}
