@@ -1,5 +1,5 @@
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
 from datetime import datetime
 
@@ -33,8 +33,8 @@ class SubprojectOut(BaseModel):
 class SubprojectCreate(BaseModel):
     subprojectName: str
     projectAssociatedTo: UUID
-    cuisine: list[str]
-    religion: Religion
+    cuisine: list[str] = Field(default=[])
+    religion: Religion | None = None
     subprojectDate: datetime
     guestCount: int
     subprojectType: ServiceStyle

@@ -7,8 +7,8 @@ class UserOut(BaseModel):
     userId: UUID
     fullName: str
     userEmail: str
-    userPhoneNumber: str
-    preferredContact: str
+    userPhoneNumber: str | None = None
+    preferredContact: str | None = None
     userDisabled: bool
     userAddress: str | None = None
     userRole: Literal["client", "vendor", "platform_admin"]
@@ -20,8 +20,8 @@ class UserOut(BaseModel):
 class UserCreate(BaseModel):
     fullName: str
     email: str
-    phoneNumber: str
-    preferredContact: str
+    phoneNumber: str | None = None
+    preferredContact: str | None = None
     address: str | None = None
     role: Literal["client", "vendor", "platform_admin"]
     # Optional: lets whoever creates a user (a vendor, via this endpoint)
