@@ -112,7 +112,7 @@ def add_user_to_project(project: Project, user: User, db: Session, actor_id=None
     if user not in project.users:
         existing_clients = list(project.users)
         project.users.append(user)
-        db.commit()
+        db.flush()
         db.refresh(project)
         record_activity(
             db,

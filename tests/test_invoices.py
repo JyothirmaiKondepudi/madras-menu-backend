@@ -44,6 +44,7 @@ def test_create_invoice_requires_vendor(
     )
     assert resp.status_code == 403
 
+
 def test_get_invoice_by_id(client, test_user, test_project, vendor_auth_headers):
     created = client.post(
         "/invoices",
@@ -1229,6 +1230,7 @@ def test_client_and_vendor_accepting_together_notifies_once(
         with Session(engine) as db:
             try:
                 respond_to_invoice(db.get(Invoice, UUID(invoice_id)), "Accepted", db)
+                db.commit()
             except Exception as exc:  # surfaced in the main thread below
                 errors.append(exc)
 
@@ -1236,7 +1238,7 @@ def test_client_and_vendor_accepting_together_notifies_once(
     # cleanup after the test would wait on its lock forever
     with Session(engine) as first:
         invoice = first.get(Invoice, UUID(invoice_id))
-        # respond_to_invoice commits, so hold the lock by hand while the
+        # respond_to_invoice flushes, so hold the lock by hand while the
         # second accept starts and has to wait for it
         first.execute(
             select(Invoice)
@@ -1247,7 +1249,8 @@ def test_client_and_vendor_accepting_together_notifies_once(
         thread.start()
         thread.join(timeout=1)
         waited = thread.is_alive()
-        respond_to_invoice(invoice, "Accepted", first)  # commits, releasing the lock
+        respond_to_invoice(invoice, "Accepted", first)
+        first.commit()  # commits, releasing the lock
 
     thread.join(timeout=10)
     assert waited, "second accept didn't wait for the invoice lock"

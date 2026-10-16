@@ -111,7 +111,7 @@ def add_new_invoice(new_invoice, db: Session, actor_id=None):
         db.flush()
         _recompute_billing_info(created_invoice.subprojectId, db)
 
-    db.commit()
+    db.flush()
     db.refresh(created_invoice)
     _regenerate_pdf(created_invoice, db)
     create_notification(
@@ -188,7 +188,6 @@ def respond_to_invoice(
     # accepts can't both see Assigned and both notify.
     invoice = lock_invoice(invoice, db)
     if invoice.invoiceStatus == new_status:
-        db.flush()  # nothing changed; releases the lock
         return invoice
 
     # raises InvoiceStatusError if the invoice can't move there (e.g. it's
