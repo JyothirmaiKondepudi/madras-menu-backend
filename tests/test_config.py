@@ -2,7 +2,7 @@
 missing or invalid one."""
 import pytest
 
-from config import ConfigError, database_url, load_settings
+from config import ConfigError, database_pool_settings, database_url, load_settings
 
 GOOD_SECRET = "a" * 64
 SETTINGS = ["DATABASE_URL", "SECRET_KEY", "JWT_ALGORITHM", "JWT_EXPIRE_MINUTES", "CORS_ORIGINS", "OLLAMA_BASE_URL"]
@@ -74,3 +74,48 @@ def test_database_url_alone_is_enough_for_scripts(env):
     env.delenv("DATABASE_URL")
     with pytest.raises(ConfigError, match="DATABASE_URL"):
         database_url()
+
+
+POOL_SETTINGS = ["DB_POOL_SIZE", "DB_MAX_OVERFLOW", "DB_POOL_TIMEOUT", "DB_CONNECTION_TIMEOUT"]
+
+
+@pytest.fixture()
+def pool_env(monkeypatch):
+    for name in POOL_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+def test_pool_settings_defaults(pool_env):
+    pool = database_pool_settings()
+    assert (pool.DB_POOL_SIZE, pool.DB_MAX_OVERFLOW) == (5, 5)
+    assert (pool.DB_POOL_TIMEOUT, pool.DB_CONNECTION_TIMEOUT) == (10, 5)
+
+
+def test_pool_settings_read_from_environment(pool_env):
+    pool_env.setenv("DB_POOL_SIZE", "3")
+    pool_env.setenv("DB_MAX_OVERFLOW", "0")  # 0 is allowed: no burst connections
+    pool = database_pool_settings()
+    assert pool.DB_POOL_SIZE == 3
+    assert pool.DB_MAX_OVERFLOW == 0
+
+
+@pytest.mark.parametrize("name, value", [
+    ("DB_POOL_SIZE", "abc"),
+    ("DB_POOL_SIZE", "0"),
+    ("DB_POOL_SIZE", "5,"),  # a trailing comma copied into an env file
+    ("DB_MAX_OVERFLOW", "-1"),
+    ("DB_POOL_TIMEOUT", "0"),
+    ("DB_CONNECTION_TIMEOUT", "ten"),
+])
+def test_invalid_pool_setting_names_the_setting(pool_env, name, value):
+    # a clear ConfigError naming the setting, not a bare ValueError from int()
+    pool_env.setenv(name, value)
+    with pytest.raises(ConfigError, match=name):
+        database_pool_settings()
+
+
+def test_pool_settings_dont_need_secret_key(pool_env, env):
+    # scripts and Alembic build the engine without the app's other settings
+    env.delenv("SECRET_KEY")
+    assert database_pool_settings().DB_POOL_SIZE == 5

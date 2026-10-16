@@ -1,25 +1,20 @@
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, with_loader_criteria
 from sqlalchemy import event
-import os
 
-from config import database_url
+from config import database_pool_settings, database_url
 
 DATABASE_URL = database_url()
+pool = database_pool_settings()
 engine = create_engine(
     DATABASE_URL,
-    pool_size=int(os.getenv("DB_POOL_SIZE", "5")),
-    max_overflow=int(
-        os.getenv("DB_MAX_OVERFLOW", "5")
-    ),  # burst headroom → max 10 per instance
-    pool_timeout=int(
-        os.getenv("DB_POOL_TIMEOUT", "10")
-    ),  # fail fast instead of hanging 30s
+    pool_size=pool.DB_POOL_SIZE,
+    max_overflow=pool.DB_MAX_OVERFLOW,  # burst headroom on top of pool_size
+    pool_timeout=pool.DB_POOL_TIMEOUT,  # fail fast instead of hanging 30s
     pool_pre_ping=True,  # detect dead connections before using them
     pool_recycle=1800,  # replace connections older than 30 min
-    connect_args={
-        "connect_timeout": int(os.getenv("DB_CONNECTION_TIMEOUT", "5"))
-    },  # don't hang if the DB is unreachable
+    # don't hang if the DB is unreachable
+    connect_args={"connect_timeout": pool.DB_CONNECTION_TIMEOUT},
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Foreign keys without an explicit name= get the same name Postgres would
