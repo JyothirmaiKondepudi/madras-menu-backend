@@ -25,18 +25,22 @@ def create_notification(
         relatedUserId=related_user_id,
     )
     db.add(notification)
-    db.commit()
+    db.flush()
     db.refresh(notification)
     return notification
 
 
 def get_unread_notifications(db: Session, user_id):
     """Unread, not un-seen: filters on readAt, not seenAt."""
-    return db.execute(
-        select(Notification)
-        .where(Notification.userId == user_id, Notification.readAt.is_(None))
-        .order_by(Notification.createdAt.desc())
-    ).scalars().all()
+    return (
+        db.execute(
+            select(Notification)
+            .where(Notification.userId == user_id, Notification.readAt.is_(None))
+            .order_by(Notification.createdAt.desc())
+        )
+        .scalars()
+        .all()
+    )
 
 
 def get_notification_by_id(db: Session, notification_id) -> Notification | None:

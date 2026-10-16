@@ -16,9 +16,11 @@ from auth.dependencies import (
     load_project_in_org,
     load_user_in_org,
 )
+import logging
 from uuid import UUID
 
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 
 
 @router.get("/invoices", response_model=list[InvoiceOut])
@@ -79,10 +81,18 @@ def ensure_project_member(project: Project, user_id: UUID) -> None:
 def _respond(invoice: Invoice, new_status: str, db: Session, current_user: User):
     """Accept or reject, allowed only from where the transitions table says."""
     try:
-        return respond_to_invoice(invoice, new_status, db, actor_id=current_user.userId)
+        invoice = respond_to_invoice(
+            invoice, new_status, db, actor_id=current_user.userId
+        )
     except InvoiceStatusError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
+    db.commit()
+    try:
+        regenerate_pdf(invoice, db)
+    except Exception:
+        logger.exception(f"PDF generation failed for invoice ID: {invoice.invoiceId}")
+    return invoice
 
 
 @router.post(
@@ -108,6 +118,13 @@ def add_invoice(
     created_invoice = add_new_invoice(new_invoice, db, actor_id=current_user.userId)
     if created_invoice is None:
         raise HTTPException(status_code=409, detail=f"failure creating a new invoice")
+    db.commit()
+    try:
+        regenerate_pdf(created_invoice, db)
+    except Exception:
+        logger.exception(
+            f"PDF generation failed for invoice ID: {created_invoice.invoiceId}"
+        )
     return created_invoice
 
 
@@ -159,6 +176,11 @@ def update_invoice(
         raise HTTPException(status_code=422, detail=str(exc))
     if updated_invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
+    db.commit()
+    try:
+        regenerate_pdf(updated_invoice, db)
+    except Exception:
+        logger.exception(f"PDF generation failed for invoice ID: {invoice.invoiceId}")
     return updated_invoice
 
 
@@ -190,6 +212,7 @@ def delete_invoice(
     )
     if deleted_invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
+    db.commit()
 
 
 @router.patch("/invoices/{invoice_id}/accept", response_model=InvoiceOut)
@@ -199,7 +222,7 @@ def accept_invoice(
     current_user: User = Depends(get_current_user),
     invoice: Invoice = Depends(load_invoice_in_org),
 ):
-    invoice = get_invoice_by_id(invoice_id, db)
+
     if invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
     if (
@@ -209,6 +232,7 @@ def accept_invoice(
         raise HTTPException(
             status_code=403, detail="not authorized to respond to this invoice"
         )
+
     return _respond(invoice, "Accepted", db, current_user)
 
 
@@ -219,7 +243,6 @@ def reject_invoice(
     current_user: User = Depends(get_current_user),
     invoice: Invoice = Depends(load_invoice_in_org),
 ):
-    invoice = get_invoice_by_id(invoice_id, db)
     if invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
     if (
@@ -255,9 +278,16 @@ def get_invoice_pdf(
         # Shouldn't happen for any invoice created after this feature
         # shipped — add_new_invoice always generates one — but an invoice
         # created before it existed would have no file on disk.
-        raise HTTPException(
-            status_code=404, detail="no PDF has been generated for this invoice"
-        )
+        try:
+            regenerate_pdf(invoice, db)
+        except Exception:
+            logger.exception(
+                f"PDF generation failed for invoice ID:{invoice.invoiceId}"
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="The invoice PDF couldn't be generated. Please try again.",
+            )
     return FileResponse(
         path, media_type="application/pdf", filename=f"invoice-{invoice_id}.pdf"
     )

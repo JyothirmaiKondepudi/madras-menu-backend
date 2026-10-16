@@ -77,6 +77,7 @@ def add_subproject(
     created_subproject = add_new_subproject(
         new_subproject, db, actor_id=current_user.userId
     )
+    db.commit()
     return created_subproject
 
 

@@ -72,6 +72,7 @@ def add_user(
         raise HTTPException(
             status_code=409, detail=f"user with email {new_user.email} already exists"
         )
+    db.commit()
     return created_user
 
 

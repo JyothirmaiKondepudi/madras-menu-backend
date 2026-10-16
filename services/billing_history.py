@@ -37,7 +37,10 @@ def net_paid_on(invoice_id):
 
 
 def _remaining_balance(invoice: Invoice, db: Session):
-    return invoice.invoiceAmount - db.execute(select(net_paid_on(invoice.invoiceId))).scalar_one()
+    return (
+        invoice.invoiceAmount
+        - db.execute(select(net_paid_on(invoice.invoiceId))).scalar_one()
+    )
 
 
 def lock_invoice(invoice: Invoice, db: Session) -> Invoice:
@@ -253,7 +256,9 @@ def record_payment(
     Raises PaymentError."""
     invoice = lock_invoice(invoice, db)
     if invoice.invoiceStatus not in COUNTED_INVOICE_STATUSES:
-        raise PaymentError("The client must accept this invoice before payments can be recorded.")
+        raise PaymentError(
+            "The client must accept this invoice before payments can be recorded."
+        )
     balance = _remaining_balance(invoice, db)
     if amount > balance:
         raise PaymentError(
@@ -303,7 +308,7 @@ def void_payment(
     if invoice.invoiceStatus == "Paid" and _remaining_balance(invoice, db) > 0:
         change_invoice_status(invoice, "Accepted")
 
-    db.commit()
+    db.flush()
     db.refresh(payment)
     record_activity(
         db,
