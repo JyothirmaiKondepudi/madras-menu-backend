@@ -1,5 +1,13 @@
 from sqlalchemy.orm import Session
-from services.subproject import *
+from services.subproject import (
+    add_new_subproject,
+    delete_subproject_by_subproject_id,
+    get_all_subprojects,
+    get_all_subprojects_by_project_id,
+    get_invoice_count_for_sub_project,
+    get_subprojects_by_project_ids,
+    update_subproject_by_subproject_id,
+)
 from fastapi import APIRouter, Depends, HTTPException
 from models import Subproject, User, Project
 from schemas.subproject import SubprojectOut, SubprojectCreate, SubprojectUpdate

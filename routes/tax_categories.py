@@ -1,6 +1,12 @@
 from sqlalchemy.orm import Session
 from uuid import UUID
-from services.tax_categories import *
+from services.tax_categories import (
+    add_new_tax_category,
+    delete_tax_category_by_id,
+    get_all_tax_categories,
+    get_tax_category_by_id,
+    update_tax_category_by_id,
+)
 from fastapi import APIRouter, Depends, HTTPException
 from schemas.tax_category import TaxCategoryOut, TaxCategoryCreate, TaxCategoryUpdate
 from database import get_db
