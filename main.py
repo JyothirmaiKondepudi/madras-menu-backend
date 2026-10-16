@@ -5,6 +5,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, OperationalError
+# not Python's built-in TimeoutError: raised when no pooled connection frees up in time
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from starlette.concurrency import run_in_threadpool
 import time
 import uuid
@@ -26,7 +28,7 @@ from routes.billing_info import router as billing_info_router
 from routes.organizations import router as org_router
 from services.api_log_activity import record_api_log
 from hierarchy.mutations import HierarchyError
-from database import get_db
+from database import engine, get_db
 from config import get_settings
 
 # fail at startup, listing every missing or invalid setting (see config.py)
@@ -161,6 +163,24 @@ def handle_operational_error(request: Request, exc: OperationalError):
         content={
             "detail": "Database is currently unavailable. Please try again shortly."
         },
+    )
+
+
+@app.exception_handler(PoolTimeoutError)
+def handle_pool_timeout(request: Request, exc: PoolTimeoutError):
+    # The database is up, but every pooled connection stayed busy for
+    # DB_POOL_TIMEOUT seconds: a capacity problem, so log the pool's state
+    # (pool too small, or a request holding its connection too long?)
+    logger.error(
+        "Connection pool exhausted on %s %s: %s",
+        request.method,
+        request.url.path,
+        engine.pool.status(),
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The server is busy. Please try again in a moment."},
+        headers={"Retry-After": "5"},
     )
 
 

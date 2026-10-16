@@ -74,3 +74,44 @@ def test_integrity_errors_map_to_safe_messages(pgcode, status, detail):
     assert resp.status_code == status
     assert json.loads(resp.body) == {"detail": detail}
     assert b"secret" not in resp.body
+
+
+def test_exhausted_connection_pool_returns_503_not_500(client, engine, vendor_auth_headers):
+    """A real pool with one connection, already checked out: the next request
+    waits pool_timeout and gets sqlalchemy's TimeoutError, which is not an
+    OperationalError and used to fall through to the generic 500."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from database import get_db
+    from main import app
+
+    tiny = create_engine(
+        engine.url.render_as_string(hide_password=False),
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=0.1,
+    )
+    TinySession = sessionmaker(bind=tiny)
+
+    def override_get_db():
+        db = TinySession()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    held = tiny.connect()  # the only connection in the pool
+    try:
+        app.dependency_overrides[get_db] = override_get_db
+        resp = client.get("/users", headers=vendor_auth_headers)
+    finally:
+        held.close()
+        tiny.dispose()
+
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["detail"] == "The server is busy. Please try again in a moment."
+    assert resp.headers["Retry-After"] == "5"
+    # nothing about the pool or the database reaches the caller
+    assert "pool" not in resp.text.lower()
+    assert "QueuePool" not in resp.text
