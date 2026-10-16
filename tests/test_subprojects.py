@@ -161,3 +161,50 @@ def test_database_rejects_values_outside_the_choices(
                 ),
                 {"id": created["subprojectId"]},
             )
+
+
+def _subproject_with_cuisine(client, project_id, headers):
+    body = _subproject_body(project_id) | {"cuisine": ["South Indian", "Chettinad"]}
+    resp = client.post("/subprojects", json=body, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_update_rejects_null_cuisine(client, test_project, vendor_auth_headers):
+    # a NULL cuisine would make every later read of this subproject a 500
+    # (SubprojectOut.cuisine is a list), so null is rejected; [] means none
+    created = _subproject_with_cuisine(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{created['subprojectId']}",
+        json={"cuisine": None},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+    # and the subproject still reads fine with its cuisines intact
+    resp = client.get(f"/subprojects/{created['subprojectId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["cuisine"] == ["South Indian", "Chettinad"]
+
+
+def test_update_can_clear_cuisine_with_empty_list(client, test_project, vendor_auth_headers):
+    created = _subproject_with_cuisine(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{created['subprojectId']}",
+        json={"cuisine": []},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["cuisine"] == []
+
+
+def test_update_without_cuisine_keeps_it(client, test_project, vendor_auth_headers):
+    created = _subproject_with_cuisine(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{created['subprojectId']}",
+        json={"guestCount": 200},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["guestCount"] == 200
+    assert resp.json()["cuisine"] == ["South Indian", "Chettinad"]

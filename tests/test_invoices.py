@@ -21,7 +21,7 @@ def test_create_invoice(client, test_user, test_project, vendor_auth_headers):
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["invoiceAmount"] == "2500.00"
+    assert resp.json()["invoiceAmount"] == 2500.00
     assert resp.json()["project"]["projectId"] == test_project["projectId"]
 
 
@@ -162,7 +162,7 @@ def test_update_invoice(client, test_user, test_project, vendor_auth_headers):
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["invoiceAmount"] == "200.00"
+    assert resp.json()["invoiceAmount"] == 200.00
 
 
 # --- invoice status lifecycle (ticket C7) ------------------------------------
@@ -420,7 +420,7 @@ def test_invoice_update_is_saved_even_if_pdf_fails(
     assert resp.status_code == 200, resp.text
 
     resp = client.get(f"/invoices/{created['invoiceId']}", headers=vendor_auth_headers)
-    assert resp.json()["totalAmount"] == "999.00"
+    assert resp.json()["totalAmount"] == 999.00
 
 
 def test_invoice_accept_is_saved_even_if_pdf_fails(
@@ -652,9 +652,9 @@ def test_invoice_amount_is_deposit_percentage_of_total(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["invoiceAmount"] == "2500.00"
-    assert body["totalAmount"] == "10000.00"
-    assert body["depositPercentage"] == "25.00"
+    assert body["invoiceAmount"] == 2500.00
+    assert body["totalAmount"] == 10000.00
+    assert body["depositPercentage"] == 25.00
 
 
 def test_invoice_amount_rounds_to_the_cent(
@@ -670,7 +670,7 @@ def test_invoice_amount_rounds_to_the_cent(
         ),
         headers=vendor_auth_headers,
     )
-    assert resp.json()["invoiceAmount"] == "333.30"
+    assert resp.json()["invoiceAmount"] == 333.30
 
 
 def test_deposit_percentage_out_of_range_rejected(
@@ -707,7 +707,7 @@ def test_updating_deposit_percentage_recomputes_amount(
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["invoiceAmount"] == "4000.00"
+    assert resp.json()["invoiceAmount"] == 4000.00
 
 
 def test_invoice_audit_timestamps(client, test_user, test_project, vendor_auth_headers):

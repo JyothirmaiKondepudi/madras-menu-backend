@@ -72,13 +72,13 @@ def _menu_item_body(**overrides):
     }
 
 
-def test_cost_per_person_is_exact_and_sent_as_a_string(client, vendor_auth_headers):
-    # Decimal, not float: the value comes back exactly as stored, as a JSON string
+def test_cost_per_person_is_exact_and_sent_as_a_number(client, vendor_auth_headers):
+    # stored exactly as a Decimal, sent to the frontend as a plain JSON number
     resp = client.post(
         "/menu-items", json=_menu_item_body(costPerPerson="12.10"), headers=vendor_auth_headers
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["costPerPerson"] == "12.10"
+    assert resp.json()["costPerPerson"] == 12.10
 
 
 def test_cost_per_person_accepts_a_json_number(client, vendor_auth_headers):
@@ -86,7 +86,7 @@ def test_cost_per_person_accepts_a_json_number(client, vendor_auth_headers):
         "/menu-items", json=_menu_item_body(costPerPerson=12.5), headers=vendor_auth_headers
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["costPerPerson"] == "12.50"
+    assert resp.json()["costPerPerson"] == 12.50
 
 
 def test_cost_per_person_can_be_left_out(client, vendor_auth_headers):
@@ -119,7 +119,7 @@ def test_update_cost_per_person(client, test_menu_item, vendor_auth_headers):
         f"/menu-items/{test_menu_item['id']}", json={"costPerPerson": "18.75"}, headers=vendor_auth_headers
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["costPerPerson"] == "18.75"
+    assert resp.json()["costPerPerson"] == 18.75
 
 
 @pytest.mark.parametrize("bad_cost", ["-1", "12.345", "1234567.00"])
