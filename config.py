@@ -5,7 +5,8 @@ missing or invalid setting and lists every problem at once, instead of
 failing later (e.g. on the first login when SECRET_KEY is missing).
 
 Scripts and Alembic only need the database, so database.py uses
-database_url() and they don't need SECRET_KEY or the other app settings.
+database_url() and database_pool_settings(), and they don't need SECRET_KEY
+or the other app settings.
 """
 import os
 from functools import lru_cache
@@ -53,14 +54,27 @@ class Settings(BaseModel):
         return value
 
 
+class DatabaseSettings(BaseModel):
+    """Connection pool settings, kept apart from Settings so scripts and
+    Alembic can build the engine without SECRET_KEY. Per instance, at most
+    DB_POOL_SIZE + DB_MAX_OVERFLOW connections are open at once."""
+
+    DB_POOL_SIZE: int = Field(default=5, gt=0)
+    DB_MAX_OVERFLOW: int = Field(default=5, ge=0)
+    # seconds to wait for a free connection before giving up
+    DB_POOL_TIMEOUT: int = Field(default=10, gt=0)
+    # seconds to wait when opening a connection to an unreachable database
+    DB_CONNECTION_TIMEOUT: int = Field(default=5, gt=0)
+
+
 def _from_environment(names) -> dict[str, str]:
     # an empty value (e.g. "SECRET_KEY=" copied from the example file) counts as unset
     return {name: os.environ[name] for name in names if os.environ.get(name, "").strip()}
 
 
-def load_settings() -> Settings:
+def _load(model):
     try:
-        return Settings(**_from_environment(Settings.model_fields))
+        return model(**_from_environment(model.model_fields))
     except ValidationError as exc:
         # messages only, never the values: SECRET_KEY must not end up in logs
         problems = "\n".join(
@@ -68,6 +82,10 @@ def load_settings() -> Settings:
             for error in exc.errors()
         )
         raise ConfigError(f"Invalid configuration:\n{problems}") from None
+
+
+def load_settings() -> Settings:
+    return _load(Settings)
 
 
 @lru_cache
@@ -80,3 +98,7 @@ def database_url() -> str:
     if not url:
         raise ConfigError("Invalid configuration:\n  DATABASE_URL: Field required")
     return url
+
+
+def database_pool_settings() -> DatabaseSettings:
+    return _load(DatabaseSettings)
