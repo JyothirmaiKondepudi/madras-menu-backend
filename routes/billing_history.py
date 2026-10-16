@@ -81,7 +81,11 @@ def void_payment_made(
             status_code=409,
             detail=f"{payment.source} payments can't be voided. Issue a refund instead.",
         )
-    return void_payment(payment, invoice, body.reason, db, actor_id=current_user.userId)
+    voided_payment = void_payment(
+        payment, invoice, body.reason, db, actor_id=current_user.userId
+    )
+    db.commit()
+    return voided_payment
 
 
 @router.get("/billing-history", response_model=list[BillingHistoryOut])

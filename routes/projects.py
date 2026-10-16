@@ -49,6 +49,7 @@ def add_project_user(
     )
     if updated_project is None:
         raise HTTPException(status_code=404, detail="project or user not found")
+    db.commit()
     return updated_project
 
 
@@ -129,6 +130,7 @@ def add_project(
     )
     if created_project is None:
         raise HTTPException(status_code=409, detail=f"failure creating a new project")
+    db.commit()
     return created_project
 
 

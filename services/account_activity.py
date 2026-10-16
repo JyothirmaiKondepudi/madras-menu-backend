@@ -31,6 +31,6 @@ def record_activity(
         activityMetadata=metadata,
     )
     db.add(activity)
-    db.commit()
+    db.flush()
     db.refresh(activity)
     return activity

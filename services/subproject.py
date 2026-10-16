@@ -53,7 +53,7 @@ def add_new_subproject(new_subproject, db: Session, actor_id=None):
         maxPricePerPerson=new_subproject.maxPricePerPerson,
     )
     db.add(created_subproject)
-    db.commit()
+    db.flush()
     db.refresh(created_subproject)
     record_activity(
         db,

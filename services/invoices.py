@@ -188,7 +188,7 @@ def respond_to_invoice(
     # accepts can't both see Assigned and both notify.
     invoice = lock_invoice(invoice, db)
     if invoice.invoiceStatus == new_status:
-        db.commit()  # nothing changed; releases the lock
+        db.flush()  # nothing changed; releases the lock
         return invoice
 
     # raises InvoiceStatusError if the invoice can't move there (e.g. it's
@@ -197,7 +197,7 @@ def respond_to_invoice(
     if invoice.subprojectId is not None:
         db.flush()
         _recompute_billing_info(invoice.subprojectId, db)
-    db.commit()
+    db.flush()
     db.refresh(invoice)
     _regenerate_pdf(invoice, db)
 
@@ -242,7 +242,7 @@ def delete_invoice_by_invoice_id(invoice_id, db: Session, actor_id=None):
         # still counts this invoice
         db.flush()
         _recompute_billing_info(invoice.subprojectId, db)
-    db.commit()
+    db.flush()
     record_activity(
         db,
         activity_type="invoice_deleted",

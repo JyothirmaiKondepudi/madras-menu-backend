@@ -59,7 +59,8 @@ def add_new_user(user, db: Session, created_by: User):
         createdBy=created_by.userId,
     )
     db.add(created_user)
-    db.commit()
+
+    db.flush()
 
     db.refresh(created_user)
 
