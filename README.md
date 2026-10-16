@@ -232,7 +232,7 @@ python3 hierarchy/traverse.py --mermaid tree_diagram.md
 - Porting `MenuGenerator.ts`/`pricingService.ts`/`noRepeatLedger.ts` from the old repo (the original "Step 1," still on hold).
 
 **Hierarchy / classification pipeline (paused):**
-- The automated classify stage is built (`hierarchy/candidates.py` — embedding-based retrieval — plus `hierarchy/classify.py`) but blocked on a real infrastructure decision: local Ollama models don't fit this dev machine's 8GB RAM without risking a hang, and Gemini's free tier caps at 20 requests/day — nowhere near enough for the ~1,367 still-unclassified items. Needs either paid Gemini billing, a different model, or a different machine.
+- The automated classify stage isn't in this repo: a prototype (`hierarchy/candidates.py` for embedding-based retrieval, `hierarchy/classify.py` for the Ollama/Gemini call) was written in commit `31f268e` and removed again in `5a8f9a0`. Bringing it back is blocked on a real infrastructure decision: local Ollama models don't fit this dev machine's 8GB RAM without risking a hang, and Gemini's free tier caps at 20 requests/day — nowhere near enough for the ~1,367 still-unclassified items. Needs either paid Gemini billing, a different model, or a different machine.
 - At real catalog scale, "send everyone the whole candidate list" was already known not to scale (see below) — the embedding-retrieval design replaces that, but hasn't been run past a handful of items given the above.
 - A proper review UI, replacing "read a markdown file."
 

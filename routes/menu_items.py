@@ -1,6 +1,12 @@
 from sqlalchemy.orm import Session
 from uuid import UUID
-from services.menu_items import *
+from services.menu_items import (
+    add_new_menu_item,
+    delete_menu_item_by_id,
+    get_all_menu_items,
+    get_menu_item_by_id,
+    update_menu_item_by_id,
+)
 from fastapi import APIRouter, Depends, HTTPException
 from models import User
 from schemas.menu_item import MenuItemOut, MenuItemCreate, MenuItemUpdate

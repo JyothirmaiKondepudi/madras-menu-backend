@@ -1,6 +1,13 @@
 from sqlalchemy.orm import Session
 from uuid import UUID
-from services.item_relationships import *
+from services.item_relationships import (
+    add_new_item_relationship,
+    delete_item_relationship_by_child_id,
+    delete_node_from_hierarchy,
+    get_all_item_relationships,
+    get_item_relationship_by_child_id,
+    update_item_relationship_by_child_id,
+)
 from fastapi import APIRouter, Depends, HTTPException
 from schemas.item_relationship import (
     ItemRelationshipOut,
