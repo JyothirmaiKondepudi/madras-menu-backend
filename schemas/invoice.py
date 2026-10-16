@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, field_serializer
 from uuid import UUID
 from typing import Literal
 
@@ -22,6 +22,12 @@ class InvoiceOut(BaseModel):
     dueDate: datetime | None = None
     invoiceDeletedAt: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
+
+    # Decimal inside the app, a plain JSON number on the way out: the
+    # frontend only displays these, it never does arithmetic on them
+    @field_serializer("invoiceAmount", "totalAmount", "depositPercentage", when_used="json")
+    def _decimal_as_number(self, value: Decimal | None) -> float | None:
+        return None if value is None else float(value)
 
 
 class InvoiceCreate(BaseModel):

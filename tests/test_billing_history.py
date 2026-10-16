@@ -103,7 +103,7 @@ def test_record_payment_creates_billing_history_row(client, test_project, test_u
     body = resp.json()
     assert body["eventType"] == "Payment_Succeeded"
     assert body["source"] == "Manual"
-    assert body["amount"] == "50.00"
+    assert body["amount"] == 50.00
     assert body["billingMetadata"] == {"method": "check"}
     assert body["failureReason"] is None
 
@@ -143,9 +143,9 @@ def test_record_partial_then_full_payment_updates_billing_info(
     info = client.get(
         f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
     ).json()
-    assert info["totalInvoiced"] == "100.00"
-    assert info["totalPaid"] == "60.00"
-    assert info["balanceDue"] == "40.00"
+    assert info["totalInvoiced"] == 100.00
+    assert info["totalPaid"] == 60.00
+    assert info["balanceDue"] == 40.00
     assert info["status"] == "partial_payment_received"
 
     client.post(
@@ -156,8 +156,8 @@ def test_record_partial_then_full_payment_updates_billing_info(
     info = client.get(
         f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
     ).json()
-    assert info["totalPaid"] == "100.00"
-    assert info["balanceDue"] == "0.00"
+    assert info["totalPaid"] == 100.00
+    assert info["balanceDue"] == 0.00
     assert info["status"] == "paid_in_full"
 
 
@@ -244,7 +244,7 @@ def test_voided_payment_stays_in_history_but_leaves_the_totals(client, test_proj
     invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], h, sub["subprojectId"], 100.0)
     payment = _pay(client, invoice["invoiceId"], h, amount=40)
     info = client.get(f"/billing-info/subprojects/{sub['subprojectId']}", headers=h).json()
-    assert info["totalPaid"] == "40.00"
+    assert info["totalPaid"] == 40.00
 
     resp = _void(client, payment["id"], h, reason="Typo, actual amount was $4")
     assert resp.status_code == 200, resp.text
@@ -252,8 +252,8 @@ def test_voided_payment_stays_in_history_but_leaves_the_totals(client, test_proj
     assert resp.json()["voidedReason"] == "Typo, actual amount was $4"
 
     info = client.get(f"/billing-info/subprojects/{sub['subprojectId']}", headers=h).json()
-    assert info["totalPaid"] == "0.00"
-    assert info["balanceDue"] == "100.00"
+    assert info["totalPaid"] == 0.00
+    assert info["balanceDue"] == 100.00
     history = client.get(f"/billing-history/invoices/{invoice['invoiceId']}", headers=h).json()
     assert [row["id"] for row in history] == [payment["id"]]
 

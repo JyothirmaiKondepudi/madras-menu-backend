@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from decimal import Decimal
 from datetime import datetime
 from uuid import UUID
@@ -29,6 +29,12 @@ class MenuItemOut(BaseModel):
     updatedAt: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    # Decimal inside the app, a plain JSON number on the way out: the
+    # frontend only displays these, it never does arithmetic on them
+    @field_serializer("costPerPerson", when_used="json")
+    def _decimal_as_number(self, value: Decimal | None) -> float | None:
+        return None if value is None else float(value)
 
 
 class MenuItemCreate(BaseModel):

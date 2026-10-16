@@ -1,5 +1,5 @@
 from decimal import Decimal
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, field_serializer
 from typing import Annotated, Literal
 from uuid import UUID
 from datetime import datetime
@@ -24,6 +24,12 @@ class BillingHistoryOut(BaseModel):
     voidedReason: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    # Decimal inside the app, a plain JSON number on the way out: the
+    # frontend only displays these, it never does arithmetic on them
+    @field_serializer("amount", when_used="json")
+    def _decimal_as_number(self, value: Decimal | None) -> float | None:
+        return None if value is None else float(value)
 
 
 class PaymentCreate(BaseModel):

@@ -1,5 +1,5 @@
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from uuid import UUID
 from datetime import datetime
 
@@ -29,6 +29,12 @@ class SubprojectOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    # Decimal inside the app, a plain JSON number on the way out: the
+    # frontend only displays these, it never does arithmetic on them
+    @field_serializer("minPricePerPerson", "maxPricePerPerson", when_used="json")
+    def _decimal_as_number(self, value: Decimal | None) -> float | None:
+        return None if value is None else float(value)
+
 
 class SubprojectCreate(BaseModel):
     subprojectName: str
@@ -55,3 +61,10 @@ class SubprojectUpdate(BaseModel):
     subprojectEvent: EventType | None = None
     minPricePerPerson: Decimal | None = None
     maxPricePerPerson: Decimal | None = None
+
+    @field_validator("cuisine")
+    @classmethod
+    def _cuisine_cant_be_null(cls, value):
+        if value is None:
+            raise ValueError("cuisine can't be null; send [] for no cuisines")
+        return value

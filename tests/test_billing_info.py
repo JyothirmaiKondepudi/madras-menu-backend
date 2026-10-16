@@ -124,8 +124,8 @@ def test_unaccepted_invoice_is_not_billed(client, test_project, test_user, vendo
 
     info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
     assert info["status"] == "no_active_invoices"
-    assert info["totalInvoiced"] == "0.00"
-    assert info["balanceDue"] == "0.00"
+    assert info["totalInvoiced"] == 0.00
+    assert info["balanceDue"] == 0.00
 
 
 def test_accepting_invoice_adds_it_to_billing_info(client, test_project, test_user, vendor_auth_headers):
@@ -138,9 +138,9 @@ def test_accepting_invoice_adds_it_to_billing_info(client, test_project, test_us
     resp = client.get(f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     info = resp.json()
-    assert info["totalInvoiced"] == "250.00"
-    assert info["totalPaid"] == "0.00"
-    assert info["balanceDue"] == "250.00"
+    assert info["totalInvoiced"] == 250.00
+    assert info["totalPaid"] == 0.00
+    assert info["balanceDue"] == 250.00
     assert info["status"] == "payment_pending"
 
 
@@ -155,8 +155,8 @@ def test_second_invoice_adds_to_total_invoiced(client, test_project, test_user, 
     info = client.get(
         f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
     ).json()
-    assert info["totalInvoiced"] == "250.00"
-    assert info["balanceDue"] == "250.00"
+    assert info["totalInvoiced"] == 250.00
+    assert info["balanceDue"] == 250.00
 
 
 def test_new_invoice_after_full_payment_reopens_balance(client, test_project, test_user, vendor_auth_headers):
@@ -181,9 +181,9 @@ def test_new_invoice_after_full_payment_reopens_balance(client, test_project, te
     info = client.get(
         f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
     ).json()
-    assert info["totalInvoiced"] == "1500.00"
-    assert info["totalPaid"] == "1000.00"
-    assert info["balanceDue"] == "500.00"
+    assert info["totalInvoiced"] == 1500.00
+    assert info["totalPaid"] == 1000.00
+    assert info["balanceDue"] == 500.00
     assert info["status"] == "partial_payment_received"
 
 
@@ -221,8 +221,8 @@ def test_updating_invoice_amount_updates_total_invoiced(client, test_project, te
     assert resp.status_code == 200, resp.text
 
     info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
-    assert info["totalInvoiced"] == "300.00"
-    assert info["balanceDue"] == "300.00"
+    assert info["totalInvoiced"] == 300.00
+    assert info["balanceDue"] == 300.00
 
 
 def test_invoice_moved_before_acceptance_bills_its_new_subproject(
@@ -242,7 +242,7 @@ def test_invoice_moved_before_acceptance_bills_its_new_subproject(
     assert resp.status_code == 200, resp.text
 
     assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["status"] == "no_active_invoices"
-    assert _billing_info(client, new["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "100.00"
+    assert _billing_info(client, new["subprojectId"], vendor_auth_headers)["totalInvoiced"] == 100.00
 
 
 def test_detaching_invoice_from_subproject_updates_old_total(client, test_project, test_user, vendor_auth_headers):
@@ -258,8 +258,8 @@ def test_detaching_invoice_from_subproject_updates_old_total(client, test_projec
     assert resp.status_code == 200, resp.text
 
     info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
-    assert info["totalInvoiced"] == "0.00"
-    assert info["balanceDue"] == "0.00"
+    assert info["totalInvoiced"] == 0.00
+    assert info["balanceDue"] == 0.00
 
 
 def test_accepted_invoice_cannot_change_subproject(client, test_project, test_user, vendor_auth_headers):
@@ -275,7 +275,7 @@ def test_accepted_invoice_cannot_change_subproject(client, test_project, test_us
         )
         assert resp.status_code == 409, resp.text
 
-    assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "100.00"
+    assert _billing_info(client, old["subprojectId"], vendor_auth_headers)["totalInvoiced"] == 100.00
 
 
 def test_paid_invoice_cannot_change_subproject(client, test_project, test_user, vendor_auth_headers):
@@ -522,7 +522,7 @@ def test_deleting_every_invoice_means_no_active_invoices(client, test_project, t
 
     info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
     assert info["status"] == "no_active_invoices"
-    assert info["totalInvoiced"] == "0.00"
+    assert info["totalInvoiced"] == 0.00
     assert info["nextDueDate"] is None
 
 
@@ -592,7 +592,7 @@ def test_only_accepted_invoices_count_toward_total(client, test_project, test_us
         subproject["subprojectId"], amount=500.0, accept=False,
     )
 
-    assert _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["totalInvoiced"] == "100.00"
+    assert _billing_info(client, subproject["subprojectId"], vendor_auth_headers)["totalInvoiced"] == 100.00
 
 
 def test_declined_invoice_is_not_billed(client, test_project, test_user, vendor_auth_headers):
@@ -607,7 +607,7 @@ def test_declined_invoice_is_not_billed(client, test_project, test_user, vendor_
 
     info = _billing_info(client, subproject["subprojectId"], vendor_auth_headers)
     assert info["status"] == "no_active_invoices"
-    assert info["totalInvoiced"] == "0.00"
+    assert info["totalInvoiced"] == 0.00
 
 
 def _move_to(client, invoice_id, status, headers, amount=100):

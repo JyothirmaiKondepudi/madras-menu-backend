@@ -58,10 +58,10 @@ def _tax_body(**overrides):
     return {"name": "prepared_food", "jurisdiction": "FL", "ratePercent": "7.000", **overrides}
 
 
-def test_rate_percent_is_exact_and_sent_as_a_string(client, vendor_auth_headers):
+def test_rate_percent_is_exact_and_sent_as_a_number(client, vendor_auth_headers):
     resp = client.post("/tax-categories", json=_tax_body(ratePercent="7.125"), headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
-    assert resp.json()["ratePercent"] == "7.125"
+    assert resp.json()["ratePercent"] == 7.125
 
 
 @pytest.mark.parametrize("bad_rate", [
@@ -79,5 +79,27 @@ def test_invalid_rate_percent_rejected_on_update(client, vendor_auth_headers, ba
     created = client.post("/tax-categories", json=_tax_body(), headers=vendor_auth_headers).json()
     resp = client.patch(
         f"/tax-categories/{created['id']}", json={"ratePercent": bad_rate}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_update_without_rate_keeps_it(client, vendor_auth_headers):
+    # ratePercent is optional on update: renaming must not require resending it
+    created = client.post(
+        "/tax-categories", json=_tax_body(ratePercent="7.125"), headers=vendor_auth_headers
+    ).json()
+    resp = client.patch(
+        f"/tax-categories/{created['id']}", json={"name": "renamed"}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["name"] == "renamed"
+    assert resp.json()["ratePercent"] == 7.125
+
+
+def test_update_rejects_null_rate(client, vendor_auth_headers):
+    # the column is NOT NULL: an explicit null is a 422, not a database error
+    created = client.post("/tax-categories", json=_tax_body(), headers=vendor_auth_headers).json()
+    resp = client.patch(
+        f"/tax-categories/{created['id']}", json={"ratePercent": None}, headers=vendor_auth_headers
     )
     assert resp.status_code == 422, resp.text
