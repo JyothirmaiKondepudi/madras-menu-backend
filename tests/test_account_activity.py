@@ -99,6 +99,53 @@ def test_invoice_generated_writes_activity(client, test_user, test_project, vend
     assert "$250.00" in rows[0].description
 
 
+def test_invoice_deleted_writes_activity(client, test_user, test_project, vendor_auth_headers, engine):
+    invoice = client.post("/invoices", json={
+        "totalAmount": 250.0,
+        "depositPercentage": 100,
+        "invoiceAssignedTo": test_user["userId"],
+        "projectAssociatedTo": test_project["projectId"],
+    }, headers=vendor_auth_headers).json()
+
+    resp = client.delete(f"/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 204, resp.text
+
+    # written in the same transaction as the delete, so the route's commit
+    # has to cover it too
+    rows = _activity_rows(engine, projectId=test_project["projectId"], activityType="invoice_deleted")
+    assert len(rows) == 1
+
+
+def test_payment_voided_writes_activity_with_reason(
+    client, test_user, test_project, test_vendor_login, vendor_auth_headers, engine
+):
+    invoice = client.post("/invoices", json={
+        "totalAmount": 250.0,
+        "depositPercentage": 100,
+        "invoiceAssignedTo": test_user["userId"],
+        "projectAssociatedTo": test_project["projectId"],
+    }, headers=vendor_auth_headers).json()
+    # payments can only be recorded once the invoice is accepted
+    client.patch(f"/invoices/{invoice['invoiceId']}/accept", headers=vendor_auth_headers)
+    payment = client.post(
+        "/billing-history/payments",
+        json={"invoiceId": invoice["invoiceId"], "amount": 50},
+        headers=vendor_auth_headers,
+    ).json()
+
+    resp = client.post(
+        f"/billing-history/{payment['id']}/void",
+        json={"reason": "Entered by mistake"},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = _activity_rows(engine, projectId=test_project["projectId"], activityType="payment_voided")
+    assert len(rows) == 1
+    assert "Entered by mistake" in rows[0].description
+    assert str(rows[0].actorId) == test_vendor_login["userId"]
+
+
 def test_invoice_accepted_writes_activity_with_client_as_actor(
     client, test_vendor_login, test_client_login, vendor_auth_headers, engine
 ):

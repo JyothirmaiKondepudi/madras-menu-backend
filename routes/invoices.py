@@ -16,9 +16,11 @@ from auth.dependencies import (
     load_project_in_org,
     load_user_in_org,
 )
+import logging
 from uuid import UUID
 
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 
 
 @router.get("/invoices", response_model=list[InvoiceOut])
@@ -86,6 +88,10 @@ def _respond(invoice: Invoice, new_status: str, db: Session, current_user: User)
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
     db.commit()
+    try:
+        regenerate_pdf(invoice, db)
+    except Exception:
+        logger.exception(f"PDF generation failed for invoice ID: {invoice.invoiceId}")
     return invoice
 
 
@@ -113,6 +119,12 @@ def add_invoice(
     if created_invoice is None:
         raise HTTPException(status_code=409, detail=f"failure creating a new invoice")
     db.commit()
+    try:
+        regenerate_pdf(created_invoice, db)
+    except Exception:
+        logger.exception(
+            f"PDF generation failed for invoice ID: {created_invoice.invoiceId}"
+        )
     return created_invoice
 
 
@@ -164,6 +176,11 @@ def update_invoice(
         raise HTTPException(status_code=422, detail=str(exc))
     if updated_invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
+    db.commit()
+    try:
+        regenerate_pdf(updated_invoice, db)
+    except Exception:
+        logger.exception(f"PDF generation failed for invoice ID: {invoice.invoiceId}")
     return updated_invoice
 
 
@@ -261,9 +278,16 @@ def get_invoice_pdf(
         # Shouldn't happen for any invoice created after this feature
         # shipped — add_new_invoice always generates one — but an invoice
         # created before it existed would have no file on disk.
-        raise HTTPException(
-            status_code=404, detail="no PDF has been generated for this invoice"
-        )
+        try:
+            regenerate_pdf(invoice, db)
+        except Exception:
+            logger.exception(
+                f"PDF generation failed for invoice ID:{invoice.invoiceId}"
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="The invoice PDF couldn't be generated. Please try again.",
+            )
     return FileResponse(
         path, media_type="application/pdf", filename=f"invoice-{invoice_id}.pdf"
     )

@@ -376,6 +376,113 @@ def test_invoice_pdf_generated_and_downloadable(
     assert resp.content.startswith(b"%PDF")
 
 
+def _break_pdf_generation(monkeypatch):
+    def failing_generate(invoice, assigned_user):
+        raise OSError("disk full")
+
+    # regenerate_pdf looks the generator up in services.invoices
+    monkeypatch.setattr("services.invoices.generate_invoice_pdf", failing_generate)
+
+
+def test_invoice_is_created_even_if_pdf_fails(
+    client, test_user, test_project, vendor_auth_headers, monkeypatch
+):
+    # the PDF runs after the commit: a failure is logged, not a failed request,
+    # or the caller would retry and create the invoice twice
+    _break_pdf_generation(monkeypatch)
+    resp = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"]),
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    invoice_id = resp.json()["invoiceId"]
+    resp = client.get(f"/invoices/{invoice_id}", headers=vendor_auth_headers)
+    assert resp.status_code == 200
+
+
+def test_invoice_update_is_saved_even_if_pdf_fails(
+    client, test_user, test_project, vendor_auth_headers, monkeypatch
+):
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"]),
+        headers=vendor_auth_headers,
+    ).json()
+
+    _break_pdf_generation(monkeypatch)
+    resp = client.patch(
+        f"/invoices/{created['invoiceId']}",
+        json={"totalAmount": "999.00"},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = client.get(f"/invoices/{created['invoiceId']}", headers=vendor_auth_headers)
+    assert resp.json()["totalAmount"] == "999.00"
+
+
+def test_invoice_accept_is_saved_even_if_pdf_fails(
+    client, test_user, test_project, vendor_auth_headers, monkeypatch
+):
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"]),
+        headers=vendor_auth_headers,
+    ).json()
+
+    _break_pdf_generation(monkeypatch)
+    resp = client.patch(
+        f"/invoices/{created['invoiceId']}/accept", headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = client.get(f"/invoices/{created['invoiceId']}", headers=vendor_auth_headers)
+    assert resp.json()["invoiceStatus"] == "Accepted"
+
+
+def test_missing_pdf_is_regenerated_on_download(
+    client, test_user, test_project, vendor_auth_headers
+):
+    from services.invoice_pdf import invoice_pdf_path
+
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"]),
+        headers=vendor_auth_headers,
+    ).json()
+    # e.g. the PDF failed after the commit
+    invoice_pdf_path(created["invoiceId"]).unlink()
+
+    resp = client.get(
+        f"/invoices/{created['invoiceId']}/pdf", headers=vendor_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"%PDF")
+
+
+def test_download_returns_503_when_pdf_cannot_be_regenerated(
+    client, test_user, test_project, vendor_auth_headers, monkeypatch
+):
+    from services.invoice_pdf import invoice_pdf_path
+
+    created = client.post(
+        "/invoices",
+        json=_invoice_body(test_project["projectId"], test_user["userId"]),
+        headers=vendor_auth_headers,
+    ).json()
+    invoice_pdf_path(created["invoiceId"]).unlink()
+
+    # unlike create/update, nothing was saved here: the PDF is what was
+    # asked for, so failing to produce it is the caller's error to see
+    _break_pdf_generation(monkeypatch)
+    resp = client.get(
+        f"/invoices/{created['invoiceId']}/pdf", headers=vendor_auth_headers
+    )
+    assert resp.status_code == 503, resp.text
+
+
 def test_invoice_pdf_requires_auth(
     client, test_user, test_project, vendor_auth_headers
 ):

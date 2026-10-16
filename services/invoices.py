@@ -76,7 +76,7 @@ def compute_invoice_amount(total_amount, deposit_percentage) -> Decimal:
     return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _regenerate_pdf(invoice: Invoice, db: Session) -> None:
+def regenerate_pdf(invoice: Invoice, db: Session) -> None:
     """The stored PDF always reflects the invoice's current data — called
     after every create AND every update, not just once at creation."""
     assigned_user = db.get(User, invoice.invoiceAssignedTo)
@@ -113,7 +113,7 @@ def add_new_invoice(new_invoice, db: Session, actor_id=None):
 
     db.flush()
     db.refresh(created_invoice)
-    _regenerate_pdf(created_invoice, db)
+
     create_notification(
         db,
         user_id=created_invoice.invoiceAssignedTo,
@@ -169,9 +169,9 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
     # sorted so concurrent moves lock subprojects in the same order and can't deadlock
     for subproject_id in sorted({old_subproject_id, invoice.subprojectId} - {None}):
         _recompute_billing_info(subproject_id, db)
-    db.commit()
+    db.flush()
     db.refresh(invoice)
-    _regenerate_pdf(invoice, db)
+
     return invoice
 
 
@@ -198,7 +198,6 @@ def respond_to_invoice(
         _recompute_billing_info(invoice.subprojectId, db)
     db.flush()
     db.refresh(invoice)
-    _regenerate_pdf(invoice, db)
 
     status_word = new_status.lower()
     create_notification(
