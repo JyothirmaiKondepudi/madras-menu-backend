@@ -422,3 +422,77 @@ def test_project_audit_timestamps(client, test_project, vendor_auth_headers):
     assert resp.status_code == 200, resp.text
     assert datetime.fromisoformat(resp.json()["createdAt"]) == created
     assert datetime.fromisoformat(resp.json()["updatedAt"]) > updated
+
+
+# --- a client never sees the project's other clients (BE-13) ---------------
+
+
+def _shared_project(client, test_project, test_client_login, vendor_auth_headers):
+    """Puts a second client on test_project next to test_client_login, and
+    returns (that other client, test_client_login's auth headers)."""
+    other = client.post("/users", json={
+        "fullName": "Other Client",
+        "email": "other.client@example.com",
+        "phoneNumber": "5559871234",
+        "role": "client",
+    }, headers=vendor_auth_headers).json()
+    for user_id in (other["userId"], test_client_login["userId"]):
+        client.post(f"/projects/{test_project['projectId']}/users/{user_id}", headers=vendor_auth_headers)
+    auth = {"Authorization": f"Bearer {_login(client, test_client_login['userEmail'])}"}
+    return other, auth
+
+
+def test_client_sees_only_themselves_on_a_shared_project(
+    client, test_project, test_client_login, vendor_auth_headers
+):
+    other, client_auth = _shared_project(client, test_project, test_client_login, vendor_auth_headers)
+
+    resp = client.get(f"/projects/{test_project['projectId']}", headers=client_auth)
+    assert [c["userId"] for c in resp.json()["clients"]] == [test_client_login["userId"]]
+    # nothing of the other client leaks anywhere in the response
+    assert other["userEmail"] not in resp.text
+    assert other["userPhoneNumber"] not in resp.text
+
+    listed = client.get("/projects", headers=client_auth).json()
+    [same] = [p for p in listed if p["projectId"] == test_project["projectId"]]
+    assert [c["userId"] for c in same["clients"]] == [test_client_login["userId"]]
+
+
+def test_vendor_still_sees_every_client(
+    client, test_user, test_project, test_client_login, vendor_auth_headers
+):
+    other, _ = _shared_project(client, test_project, test_client_login, vendor_auth_headers)
+    project = client.get(f"/projects/{test_project['projectId']}", headers=vendor_auth_headers).json()
+    assert {c["userId"] for c in project["clients"]} == {
+        test_user["userId"], other["userId"], test_client_login["userId"],
+    }
+    # with their contact details
+    [shown] = [c for c in project["clients"] if c["userId"] == other["userId"]]
+    assert shown["userEmail"] == other["userEmail"]
+    assert shown["userPhoneNumber"] == other["userPhoneNumber"]
+
+
+def test_other_clients_hidden_inside_invoice_and_subproject_responses(
+    client, test_project, test_client_login, vendor_auth_headers
+):
+    # the project is nested in these responses, so the same rule must hold there
+    other, client_auth = _shared_project(client, test_project, test_client_login, vendor_auth_headers)
+    invoice = _create_invoice(
+        client, test_project["projectId"], test_client_login["userId"], vendor_auth_headers
+    )
+    subproject = client.post("/subprojects", json={
+        "subprojectName": "Reception",
+        "projectAssociatedTo": test_project["projectId"],
+        "subprojectDate": "2026-11-14T19:00:00",
+        "guestCount": 100,
+        "subprojectType": "Buffet",
+        "subprojectVenue": "Hotel",
+        "subprojectEvent": "Wedding Dinner",
+    }, headers=vendor_auth_headers).json()
+
+    for url in (f"/invoices/{invoice['invoiceId']}", f"/subprojects/{subproject['subprojectId']}"):
+        resp = client.get(url, headers=client_auth)
+        assert resp.status_code == 200, (url, resp.text)
+        clients = resp.json()["project"]["clients"]
+        assert [c["userId"] for c in clients] == [test_client_login["userId"]], url
+        assert other["userEmail"] not in resp.text, url
