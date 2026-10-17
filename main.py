@@ -29,6 +29,7 @@ from routes.organizations import router as org_router
 from services.api_log_activity import record_api_log
 from hierarchy.mutations import HierarchyError
 from database import engine, get_db
+from auth.viewer import reset_current_request, set_current_request
 from config import get_settings
 
 # fail at startup, listing every missing or invalid setting (see config.py)
@@ -65,6 +66,16 @@ def _client_ip(request: Request) -> str | None:
         return str(ipaddress.ip_address(host)) if host else None
     except ValueError:  # e.g. "testclient"
         return None
+
+
+@app.middleware("http")
+async def remember_request(request: Request, call_next):
+    # lets response schemas see who's asking (auth/viewer.py)
+    token = set_current_request(request)
+    try:
+        return await call_next(request)
+    finally:
+        reset_current_request(token)
 
 
 @app.middleware("http")

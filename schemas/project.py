@@ -1,8 +1,9 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from uuid import UUID
 from datetime import datetime
 from typing import Literal
 
+from auth.viewer import current_viewer
 from schemas.user import UserOut
 from services.timezones import IanaTimezone
 
@@ -29,6 +30,16 @@ class ProjectOut(BaseModel):
     updatedAt: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    # A client sees only themselves here, never the project's other clients
+    # or their contact details (BE-13). Applies wherever a project is
+    # nested too (invoices, subprojects). Vendors and admins see everyone.
+    @field_serializer("clients", mode="wrap")
+    def _hide_other_clients(self, clients: list[UserOut], handler):
+        viewer = current_viewer()
+        if viewer is not None and viewer[1] == "client":
+            clients = [c for c in clients if c.userId == viewer[0]]
+        return handler(clients)
 
 
 class ProjectCreate(BaseModel):

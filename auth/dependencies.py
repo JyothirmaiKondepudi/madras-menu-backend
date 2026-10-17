@@ -37,6 +37,8 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="User disabled")
     request.state.user_id = user.userId
     request.state.org_id = user.userOrg
+    # read by response schemas that depend on the viewer (see auth/viewer.py)
+    request.state.user_role = user.userRole
     return user
 
 
