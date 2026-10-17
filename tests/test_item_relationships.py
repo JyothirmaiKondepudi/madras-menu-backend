@@ -1,3 +1,6 @@
+import uuid
+
+
 def _make_item(client, name, headers):
     return client.post("/menu-items", json={
         "name": name, "course": "main", "vegNonveg": "veg", "priceWeight": "standard",
@@ -14,6 +17,26 @@ def test_create_edge(client, vendor_auth_headers):
     assert resp.status_code == 200, resp.text
     assert resp.json()["fromItemId"] == child["id"]
     assert resp.json()["toItemId"] == parent["id"]
+
+
+def test_update_edge_moves_child_to_new_parent(client, vendor_auth_headers):
+    child = _make_item(client, "Mint Pilaf", vendor_auth_headers)
+    first_parent = _make_item(client, "Pilaf", vendor_auth_headers)
+    new_parent = _make_item(client, "Rice Dish", vendor_auth_headers)
+    client.post("/item-relationships", json={
+        "childId": child["id"], "parentId": first_parent["id"],
+    }, headers=vendor_auth_headers)
+
+    resp = client.patch(f"/item-relationships/{child['id']}", json={
+        "newParentId": new_parent["id"], "reason": "broader parent",
+    }, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["toItemId"] == new_parent["id"]
+
+    # read back in a new request: the PATCH response alone would look right
+    # even if the route never committed
+    resp = client.get(f"/item-relationships/{child['id']}", headers=vendor_auth_headers)
+    assert resp.json()["toItemId"] == new_parent["id"]
 
 
 def test_item_relationships_require_vendor(client, test_client_login):
@@ -69,7 +92,7 @@ def test_get_edge_by_child_id(client, vendor_auth_headers):
 
 
 def test_get_nonexistent_edge_returns_404(client, vendor_auth_headers):
-    resp = client.get("/item-relationships/does-not-exist", headers=vendor_auth_headers)
+    resp = client.get(f"/item-relationships/{uuid.uuid4()}", headers=vendor_auth_headers)
     assert resp.status_code == 404
 
 
@@ -111,6 +134,5 @@ def test_delete_node_reparents_children(client, vendor_auth_headers):
     edge = client.get(f"/item-relationships/{child['id']}", headers=vendor_auth_headers)
     assert edge.json()["toItemId"] == grandparent["id"]
 
-    # the deleted node's own menu_items row should still exist (delete_node
-    # only removes it from the hierarchy, never the dish itself)
+    # delete_node only removes it from the hierarchy, not the dish itself
     assert client.get(f"/menu-items/{parent['id']}", headers=vendor_auth_headers).status_code == 200

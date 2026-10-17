@@ -52,7 +52,7 @@ flowchart TD
 
 **3. Generate embedding** — for each item needing classification, build its embedding text (`name + course + cuisine_tags`, e.g. `"Tamarind rice (rice_biryani, south_indian, tamil, telugu_andhra)"`) and call Ollama's local embedding API (`nomic-embed-text`, 768-dimensional vectors) via `POST /menu-items/{id}/embedding`.
 
-**4. Store embedding** — the vector is upserted into `menu_item_embeddings` — a brand-new table, added to Alembic's `OWNED_TABLES`, with zero changes to `menu_items` itself (see the main README's "Schema ownership" section for why that boundary matters).
+**4. Store embedding** — the vector is upserted into `menu_item_embeddings` — its own table, with zero changes to `menu_items` itself.
 
 **5. Semantic search** — `GET /embeddings/search?text=...` embeds the query text the same way, then runs a `pgvector` similarity query (`ORDER BY embedding <=> query_embedding`) against `menu_item_embeddings`, returning the top-K closest existing dishes. This is what correctly matches something like `"Tamarind infused rice with roasted peanuts and cashews and tempering"` to the real `Tamarind rice` row, despite zero shared vocabulary — a plain keyword search would miss that connection entirely.
 

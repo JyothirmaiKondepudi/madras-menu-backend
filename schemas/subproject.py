@@ -1,52 +1,70 @@
-from pydantic import BaseModel, ConfigDict
+from decimal import Decimal
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 from uuid import UUID
 from datetime import datetime
-from typing import Literal
 
+from models.choices import EventType, Religion, ServiceStyle, Venue
 from schemas.project import ProjectOut
+
 
 class SubprojectOut(BaseModel):
     subprojectId: UUID
     subprojectName: str
     projectAssociatedTo: UUID
     cuisine: list[str]
-    religion: Literal['Hindu', 'Muslim', "Christian"]
+    religion: Religion | None = None
     subprojectDate: datetime
     guestCount: int
-    subprojectType: Literal['Buffet', 'Plated', 'Family Style', 'Live Stations', 'Butler Passed']
-    subprojectVenue: Literal['Hotel', 'Country Club', 'Mueseum', 'Party Hall', 'Home', "Outdoor"]
-    subprojectEvent: Literal['breakfast', 'wedding Lunch', 'Wedding Dinner', 'Anniversary', 'birthday', 'cockatail hour', 'mehendi', 'haldi', 'ceremony refreshments', 'vidai', 'welcome dinner', 'welcome lunch', 'baarat', 'Walima', 'Graduation', 'house Warming', 'High tea']
-    minPricePerPerson: float | None = None
-    maxPricePerPerson: float | None = None
+    subprojectType: ServiceStyle
+    subprojectVenue: Venue
+    subprojectEvent: EventType
+    minPricePerPerson: Decimal | None = None
+    maxPricePerPerson: Decimal | None = None
     project: ProjectOut
+    effectiveTimezone: str
+    # subprojectDate shown in the venue's timezone
+    localSubprojectDate: datetime
+    createdAt: datetime
+    updatedAt: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
+    # Decimal inside the app, a plain JSON number on the way out: the
+    # frontend only displays these, it never does arithmetic on them
+    @field_serializer("minPricePerPerson", "maxPricePerPerson", when_used="json")
+    def _decimal_as_number(self, value: Decimal | None) -> float | None:
+        return None if value is None else float(value)
 
 
 class SubprojectCreate(BaseModel):
     subprojectName: str
     projectAssociatedTo: UUID
-    cuisine: list[str]
-    religion: Literal['Hindu', 'Muslim', "Christian"]
+    cuisine: list[str] = Field(default=[])
+    religion: Religion | None = None
     subprojectDate: datetime
     guestCount: int
-    subprojectType: Literal['Buffet', 'Plated', 'Family Style', 'Live Stations', 'Butler Passed']
-    subprojectVenue: Literal['Hotel', 'Country Club', 'Mueseum', 'Party Hall', 'Home', "Outdoor"]
-    subprojectEvent: Literal['breakfast', 'wedding Lunch', 'Wedding Dinner', 'Anniversary', 'birthday', 'cockatail hour', 'mehendi', 'haldi', 'ceremony refreshments', 'vidai', 'welcome dinner', 'welcome lunch', 'baarat', 'Walima', 'Graduation', 'house Warming', 'High tea']
-    minPricePerPerson: float | None = None
-    maxPricePerPerson: float | None = None
+    subprojectType: ServiceStyle
+    subprojectVenue: Venue
+    subprojectEvent: EventType
+    minPricePerPerson: Decimal | None = None
+    maxPricePerPerson: Decimal | None = None
 
 
 class SubprojectUpdate(BaseModel):
     subprojectName: str | None = None
-    projectAssociatedTo: UUID | None = None
     cuisine: list[str] | None = None
-    religion: Literal['Hindu', 'Muslim', "Christian"] | None = None
+    religion: Religion | None = None
     subprojectDate: datetime | None = None
     guestCount: int | None = None
-    subprojectType: Literal['Buffet', 'Plated', 'Family Style', 'Live Stations', 'Butler Passed'] | None = None
-    subprojectVenue: Literal['Hotel', 'Country Club', 'Mueseum', 'Party Hall', 'Home', "Outdoor"] | None = None
-    subprojectEvent: Literal['breakfast', 'wedding Lunch', 'Wedding Dinner', 'Anniversary', 'birthday', 'cockatail hour', 'mehendi', 'haldi', 'ceremony refreshments', 'vidai', 'welcome dinner', 'welcome lunch', 'baarat', 'Walima', 'Graduation', 'house Warming', 'High tea'] | None = None
-    minPricePerPerson: float | None = None
-    maxPricePerPerson: float | None = None
+    subprojectType: ServiceStyle | None = None
+    subprojectVenue: Venue | None = None
+    subprojectEvent: EventType | None = None
+    minPricePerPerson: Decimal | None = None
+    maxPricePerPerson: Decimal | None = None
+
+    @field_validator("cuisine")
+    @classmethod
+    def _cuisine_cant_be_null(cls, value):
+        if value is None:
+            raise ValueError("cuisine can't be null; send [] for no cuisines")
+        return value

@@ -13,18 +13,18 @@ CVEs — jwt.decode below always pins `algorithms=[JWT_ALGORITHM]` rather
 than trusting the token's own header.
 """
 
-import os
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import bcrypt
 import jwt
 
-SECRET_KEY = os.environ.get("SECRET_KEY")
-JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
-# No refresh-token flow yet, so this needs to be long enough for a day's
-# work, not short-lived-access-token length — see the auth plan for why.
-JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "720"))
+from config import get_settings
+
+# SECRET_KEY, JWT_ALGORITHM and JWT_EXPIRE_MINUTES come from config.py and are
+# read when a token is signed or checked, so scripts that only hash passwords
+# don't need them. No refresh-token flow yet, so JWT_EXPIRE_MINUTES defaults
+# to a day's work (720), not short-lived-access-token length.
 
 
 def hash_password(password: str) -> str:
@@ -36,16 +36,18 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def create_access_token(user_id: UUID, expires_minutes: int | None = None) -> str:
+    settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(
-        minutes=expires_minutes if expires_minutes is not None else JWT_EXPIRE_MINUTES
+        minutes=expires_minutes if expires_minutes is not None else settings.JWT_EXPIRE_MINUTES
     )
     payload = {"sub": str(user_id), "exp": expire}
-    return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
 def decode_access_token(token: str) -> UUID:
     """Raises jwt.PyJWTError (expired, malformed, bad signature, etc.) on
     any failure — auth/dependencies.py is the one place that catches it and
     turns it into a 401."""
-    payload = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    settings = get_settings()
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
     return UUID(payload["sub"])

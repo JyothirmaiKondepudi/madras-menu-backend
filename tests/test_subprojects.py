@@ -1,9 +1,12 @@
+import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
+
 def _subproject_body(project_id):
     return {
         "subprojectName": "Wedding Reception Dinner",
         "projectAssociatedTo": project_id,
-        "cuisine": ["South Indian", "North Indian"],
-        "religion": "Hindu",
         "subprojectDate": "2026-11-14T19:00:00",
         "guestCount": 150,
         "subprojectType": "Buffet",
@@ -15,17 +18,25 @@ def _subproject_body(project_id):
 
 
 def test_create_subproject(client, test_project, vendor_auth_headers):
-    resp = client.post("/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers)
+    resp = client.post(
+        "/subprojects",
+        json=_subproject_body(test_project["projectId"]),
+        headers=vendor_auth_headers,
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["subprojectName"] == "Wedding Reception Dinner"
-    assert resp.json()["cuisine"] == ["South Indian", "North Indian"]
+    assert resp.json()["cuisine"] == []
+    assert resp.json()["religion"] is None
 
 
 def test_create_subproject_requires_vendor(client, test_project, test_client_login):
-    login_resp = client.post("/auth/login", json={
-        "email": test_client_login["userEmail"],
-        "password": "correct-horse-battery-staple",
-    })
+    login_resp = client.post(
+        "/auth/login",
+        json={
+            "email": test_client_login["userEmail"],
+            "password": "correct-horse-battery-staple",
+        },
+    )
     token = login_resp.json()["access_token"]
 
     resp = client.post(
@@ -36,30 +47,43 @@ def test_create_subproject_requires_vendor(client, test_project, test_client_log
     assert resp.status_code == 403
 
 
-def test_get_subproject_includes_nested_project_and_client(client, test_project, vendor_auth_headers):
+def test_get_subproject_includes_nested_project_and_client(
+    client, test_user, test_project, vendor_auth_headers
+):
     created = client.post(
-        "/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers
+        "/subprojects",
+        json=_subproject_body(test_project["projectId"]),
+        headers=vendor_auth_headers,
     ).json()
 
-    resp = client.get(f"/subprojects/{created['subprojectId']}", headers=vendor_auth_headers)
+    resp = client.get(
+        f"/subprojects/{created['subprojectId']}", headers=vendor_auth_headers
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["project"]["projectId"] == test_project["projectId"]
-    assert body["project"]["client"]["userId"] == test_project["clientId"]
+    assert [c["userId"] for c in body["project"]["clients"]] == [test_user["userId"]]
 
 
 def test_get_subprojects_by_project_id(client, test_project, vendor_auth_headers):
     created = client.post(
-        "/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers
+        "/subprojects",
+        json=_subproject_body(test_project["projectId"]),
+        headers=vendor_auth_headers,
     ).json()
 
-    resp = client.get(f"/subprojects/projects/{test_project['projectId']}", headers=vendor_auth_headers)
+    resp = client.get(
+        f"/subprojects/projects/{test_project['projectId']}",
+        headers=vendor_auth_headers,
+    )
     assert resp.status_code == 200
     assert any(s["subprojectId"] == created["subprojectId"] for s in resp.json())
 
 
 def test_get_nonexistent_subproject_returns_404(client, vendor_auth_headers):
-    resp = client.get("/subprojects/00000000-0000-0000-0000-000000000000", headers=vendor_auth_headers)
+    resp = client.get(
+        "/subprojects/00000000-0000-0000-0000-000000000000", headers=vendor_auth_headers
+    )
     assert resp.status_code == 404
 
 
@@ -67,12 +91,21 @@ def test_get_subprojects_requires_auth(client):
     assert client.get("/subprojects").status_code == 401
 
 
-def test_client_only_sees_subprojects_for_linked_projects(client, test_project, test_client_login, vendor_auth_headers):
-    client.post("/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers)
-    login_resp = client.post("/auth/login", json={
-        "email": test_client_login["userEmail"],
-        "password": "correct-horse-battery-staple",
-    })
+def test_client_only_sees_subprojects_for_linked_projects(
+    client, test_project, test_client_login, vendor_auth_headers
+):
+    client.post(
+        "/subprojects",
+        json=_subproject_body(test_project["projectId"]),
+        headers=vendor_auth_headers,
+    )
+    login_resp = client.post(
+        "/auth/login",
+        json={
+            "email": test_client_login["userEmail"],
+            "password": "correct-horse-battery-staple",
+        },
+    )
     token = login_resp.json()["access_token"]
 
     resp = client.get("/subprojects", headers={"Authorization": f"Bearer {token}"})
@@ -85,3 +118,93 @@ def test_client_only_sees_subprojects_for_linked_projects(client, test_project, 
     )
     resp = client.get("/subprojects", headers={"Authorization": f"Bearer {token}"})
     assert len(resp.json()) == 1
+
+
+def test_corrected_choice_values_are_accepted(
+    client, test_project, vendor_auth_headers
+):
+    body = _subproject_body(test_project["projectId"])
+    body.update(subprojectVenue="Museum", subprojectEvent="Cocktail Hour")
+    resp = client.post("/subprojects", json=body, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["subprojectVenue"] == "Museum"
+    assert resp.json()["subprojectEvent"] == "Cocktail Hour"
+
+
+def test_old_misspelled_choice_values_are_rejected(
+    client, test_project, vendor_auth_headers
+):
+    for field, old_value in [
+        ("subprojectVenue", "Mueseum"),
+        ("subprojectEvent", "cockatail hour"),
+    ]:
+        body = _subproject_body(test_project["projectId"])
+        body[field] = old_value
+        resp = client.post("/subprojects", json=body, headers=vendor_auth_headers)
+        assert resp.status_code == 422, (field, resp.text)
+
+
+def test_database_rejects_values_outside_the_choices(
+    engine, client, test_project, vendor_auth_headers
+):
+    # the CHECK constraint is the backstop for anything that skips the schemas
+    created = client.post(
+        "/subprojects",
+        json=_subproject_body(test_project["projectId"]),
+        headers=vendor_auth_headers,
+    ).json()
+    with pytest.raises(IntegrityError, match="subprojects_venue_check"):
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE subprojects SET venue = 'Mueseum' WHERE subproject_id = :id"
+                ),
+                {"id": created["subprojectId"]},
+            )
+
+
+def _subproject_with_cuisine(client, project_id, headers):
+    body = _subproject_body(project_id) | {"cuisine": ["South Indian", "Chettinad"]}
+    resp = client.post("/subprojects", json=body, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_update_rejects_null_cuisine(client, test_project, vendor_auth_headers):
+    # a NULL cuisine would make every later read of this subproject a 500
+    # (SubprojectOut.cuisine is a list), so null is rejected; [] means none
+    created = _subproject_with_cuisine(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{created['subprojectId']}",
+        json={"cuisine": None},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+    # and the subproject still reads fine with its cuisines intact
+    resp = client.get(f"/subprojects/{created['subprojectId']}", headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["cuisine"] == ["South Indian", "Chettinad"]
+
+
+def test_update_can_clear_cuisine_with_empty_list(client, test_project, vendor_auth_headers):
+    created = _subproject_with_cuisine(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{created['subprojectId']}",
+        json={"cuisine": []},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["cuisine"] == []
+
+
+def test_update_without_cuisine_keeps_it(client, test_project, vendor_auth_headers):
+    created = _subproject_with_cuisine(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{created['subprojectId']}",
+        json={"guestCount": 200},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["guestCount"] == 200
+    assert resp.json()["cuisine"] == ["South Indian", "Chettinad"]

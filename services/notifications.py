@@ -14,13 +14,9 @@ def create_notification(
     related_invoice_id=None,
     related_user_id=None,
 ) -> Notification:
-    """The one place a notification actually gets written — called as a
-    side effect from services/users.py (user created) and
-    services/invoices.py (invoice generated/accepted/rejected). Not
-    validated against who user_id/related_* actually are beyond the real
-    FK constraints already on the table — every call site here passes ids
-    it already knows are valid (the creating vendor, the invoice's own
-    assignee/project vendor)."""
+    """The one place a notification gets written, called as a side effect from
+    services/users.py and services/invoices.py. Trusts callers to pass valid ids;
+    relies on the table's FK constraints, not extra validation here."""
     notification = Notification(
         userId=user_id,
         type=type,
@@ -29,19 +25,22 @@ def create_notification(
         relatedUserId=related_user_id,
     )
     db.add(notification)
-    db.commit()
+    db.flush()
     db.refresh(notification)
     return notification
 
 
 def get_unread_notifications(db: Session, user_id):
-    """Unread means unread, not un-seen — readAt is the meaningful state
-    for "do I need to look at this," seenAt is the lighter-weight one."""
-    return db.execute(
-        select(Notification)
-        .where(Notification.userId == user_id, Notification.readAt.is_(None))
-        .order_by(Notification.createdAt.desc())
-    ).scalars().all()
+    """Unread, not un-seen: filters on readAt, not seenAt."""
+    return (
+        db.execute(
+            select(Notification)
+            .where(Notification.userId == user_id, Notification.readAt.is_(None))
+            .order_by(Notification.createdAt.desc())
+        )
+        .scalars()
+        .all()
+    )
 
 
 def get_notification_by_id(db: Session, notification_id) -> Notification | None:
@@ -49,20 +48,17 @@ def get_notification_by_id(db: Session, notification_id) -> Notification | None:
 
 
 def mark_seen(db: Session, notification: Notification) -> Notification:
-    """Takes the already-fetched, already-ownership-checked notification
-    (not an id) — the route layer is responsible for the 404/403 checks
-    before calling this, so this function only ever mutates, never
-    authorizes."""
+    """Takes an already-fetched, already-authorized notification — the route
+    layer handles 404/403 checks; this only mutates."""
     if notification.seenAt is None:
         notification.seenAt = datetime.now(timezone.utc)
-        db.commit()
+        db.flush()
         db.refresh(notification)
     return notification
 
 
 def mark_read(db: Session, notification: Notification) -> Notification:
-    """Reading implies having seen it — sets seenAt too, if it wasn't
-    already set, rather than leaving a read-but-technically-never-seen row."""
+    """Reading implies seeing it, so this sets seenAt too if not already set."""
     changed = False
     now = datetime.now(timezone.utc)
     if notification.seenAt is None:
@@ -72,6 +68,6 @@ def mark_read(db: Session, notification: Notification) -> Notification:
         notification.readAt = now
         changed = True
     if changed:
-        db.commit()
+        db.flush()
         db.refresh(notification)
     return notification

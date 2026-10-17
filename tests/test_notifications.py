@@ -5,14 +5,16 @@ def _login(client, email, password="correct-horse-battery-staple"):
 
 
 def _project(client, vendor_id, client_id, headers):
-    return client.post("/projects", json={
+    project = client.post("/projects", json={
         "projectName": "Notifications Test Project",
         "projectStatus": "Proposal",
         "projectStartDate": "2026-11-14T18:00:00",
         "projectEndDate": "2026-11-14T23:00:00",
         "vendorOnProject": vendor_id,
-        "clientId": client_id,
     }, headers=headers).json()
+    if client_id is not None:
+        client.post(f"/projects/{project['projectId']}/users/{client_id}", headers=headers)
+    return project
 
 
 def test_notifications_require_auth(client):
@@ -20,8 +22,6 @@ def test_notifications_require_auth(client):
 
 
 def test_creating_user_notifies_the_creator(client, vendor_auth_headers, test_vendor_login):
-    # test_user (the plain no-password fixture) isn't used here on purpose —
-    # we need to actually inspect the creating vendor's own notifications
     resp = client.post("/users", json={
         "fullName": "New Invitee",
         "email": "new.invitee@example.com",
@@ -39,11 +39,11 @@ def test_creating_user_notifies_the_creator(client, vendor_auth_headers, test_ve
 
 
 def test_invoice_generated_notifies_the_billed_client(client, test_user, test_project, vendor_auth_headers, test_client_login):
-    # link test_client_login to test_project so we can log in as the
-    # invoice's own assignee and check their unread notifications directly
+    # invoices can only be assigned to a project member (C7)
+    client.post(f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}", headers=vendor_auth_headers)
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
-        "invoiceAmount": 500.0,
+        "totalAmount": 500.0,
+        "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],
         "projectAssociatedTo": test_project["projectId"],
     }, headers=vendor_auth_headers)
@@ -57,9 +57,11 @@ def test_invoice_generated_notifies_the_billed_client(client, test_user, test_pr
 
 
 def test_mark_notification_read_sets_both_seen_and_read(client, test_user, test_project, vendor_auth_headers, test_client_login):
+    # invoices can only be assigned to a project member (C7)
+    client.post(f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}", headers=vendor_auth_headers)
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
-        "invoiceAmount": 100.0,
+        "totalAmount": 100.0,
+        "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],
         "projectAssociatedTo": test_project["projectId"],
     }, headers=vendor_auth_headers)
@@ -83,9 +85,11 @@ def test_mark_notification_read_sets_both_seen_and_read(client, test_user, test_
 
 
 def test_mark_notification_seen_does_not_mark_it_read(client, test_user, test_project, vendor_auth_headers, test_client_login):
+    # invoices can only be assigned to a project member (C7)
+    client.post(f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}", headers=vendor_auth_headers)
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
-        "invoiceAmount": 100.0,
+        "totalAmount": 100.0,
+        "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],
         "projectAssociatedTo": test_project["projectId"],
     }, headers=vendor_auth_headers)
@@ -104,13 +108,16 @@ def test_mark_notification_seen_does_not_mark_it_read(client, test_user, test_pr
     # still unread, since seeing something isn't the same as reading it
     unread_after = client.get("/notifications/unread", headers=client_auth).json()
     assert notification["id"] in [n["id"] for n in unread_after]
+    # and the seen mark was saved, not just returned
+    [after] = [n for n in unread_after if n["id"] == notification["id"]]
+    assert after["seenAt"] is not None
 
 
 def test_cannot_mark_another_users_notification(client, test_vendor_login, test_client_login, vendor_auth_headers):
     project = _project(client, test_vendor_login["userId"], test_client_login["userId"], vendor_auth_headers)
     resp = client.post("/invoices", json={
-        "invoiceStatus": "Generated",
-        "invoiceAmount": 100.0,
+        "totalAmount": 100.0,
+        "depositPercentage": 100,
         "invoiceAssignedTo": test_client_login["userId"],
         "projectAssociatedTo": project["projectId"],
     }, headers=vendor_auth_headers)

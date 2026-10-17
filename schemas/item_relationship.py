@@ -1,9 +1,11 @@
 from pydantic import BaseModel, ConfigDict
+from uuid import UUID
+
 
 class ItemRelationshipOut(BaseModel):
-    id: str
-    fromItemId: str
-    toItemId: str
+    id: UUID
+    fromItemId: UUID
+    toItemId: UUID
     relationshipType: str
     relationshipMetadata: dict | None = None
 
@@ -11,15 +13,15 @@ class ItemRelationshipOut(BaseModel):
 
 
 class ItemRelationshipCreate(BaseModel):
-    childId: str
-    parentId: str
+    childId: UUID
+    parentId: UUID
     relationshipType: str = "parent_of"
     confidence: str | None = None
     reason: str | None = None
 
 
 class ItemRelationshipUpdate(BaseModel):
-    newParentId: str
+    newParentId: UUID
     relationshipType: str = "parent_of"
     confidence: str | None = None
     reason: str | None = None
