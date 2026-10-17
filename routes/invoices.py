@@ -4,7 +4,6 @@ from services.invoices import (
     add_new_invoice,
     delete_invoice_by_invoice_id,
     get_all_invoices,
-    get_invoice_by_id,
     get_invoices_by_project_id,
     get_invoices_by_user_id,
     regenerate_pdf,
@@ -273,9 +272,6 @@ def get_invoice_pdf(
     current_user: User = Depends(get_current_user),
     invoice: Invoice = Depends(load_invoice_in_org),
 ):
-    invoice = get_invoice_by_id(invoice_id, db)
-    if invoice is None:
-        raise HTTPException(status_code=404, detail="invoice not found")
     if (
         not user_has_permission(current_user, "invoice:view_all", db)
         and invoice.invoiceAssignedTo != current_user.userId

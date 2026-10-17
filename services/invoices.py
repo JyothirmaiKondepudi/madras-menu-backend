@@ -38,8 +38,16 @@ def get_all_invoices(organization_id, db: Session):
     )
 
 
-def get_invoice_by_id(invoice_id, db: Session):
-    return db.get(Invoice, invoice_id, options=[_WITH_PROJECT_AND_USERS])
+def get_live_invoice(db: Session, invoice_id) -> Invoice | None:
+    """The one place an invoice is loaded by id. None if it doesn't exist or
+    is soft-deleted. The global filter in database.py normally hides deleted
+    invoices, but db.get returns a row already loaded in the session without
+    asking the database, so the filter alone isn't enough here.
+    tests/test_invoice_lookup.py fails on any other db.get(Invoice, ...)."""
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None or invoice.invoiceDeletedAt is not None:
+        return None
+    return invoice
 
 
 def get_invoices_by_user_id(user_id, db: Session):
@@ -132,7 +140,7 @@ def add_new_invoice(new_invoice, db: Session, actor_id=None):
 
 
 def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session):
-    invoice = db.get(Invoice, invoice_id)
+    invoice = get_live_invoice(db, invoice_id)
     if invoice is None:
         return None
     # saved before the changes are applied: if the subproject changes, the
@@ -229,7 +237,7 @@ def respond_to_invoice(
 def delete_invoice_by_invoice_id(invoice_id, db: Session, actor_id=None):
     """Soft delete: the row stays for the financial record, stamped with
     invoiceDeletedAt. The route has already checked that it's deletable."""
-    invoice = db.get(Invoice, invoice_id)
+    invoice = get_live_invoice(db, invoice_id)
     if invoice is None:
         return None
     invoice.invoiceDeletedAt = datetime.now(timezone.utc)
