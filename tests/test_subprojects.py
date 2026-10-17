@@ -208,3 +208,17 @@ def test_update_without_cuisine_keeps_it(client, test_project, vendor_auth_heade
     assert resp.status_code == 200, resp.text
     assert resp.json()["guestCount"] == 200
     assert resp.json()["cuisine"] == ["South Indian", "Chettinad"]
+
+
+def test_update_rejects_null_event_date(client, test_project, vendor_auth_headers):
+    # used to reach the timezone conversion and crash with a 500
+    created = _subproject_with_cuisine(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{created['subprojectId']}",
+        json={"subprojectDate": None},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+    resp = client.get(f"/subprojects/{created['subprojectId']}", headers=vendor_auth_headers)
+    assert resp.json()["subprojectDate"] == created["subprojectDate"]

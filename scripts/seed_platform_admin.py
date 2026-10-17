@@ -36,6 +36,7 @@ def main() -> None:
     try:
         if db.execute(select(User).where(User.userRole == "platform_admin")).scalars().first():
             sys.exit("A platform admin already exists; create more through POST /users.")
+        args.admin_email = args.admin_email.strip().lower()  # stored lowercase, like the API
         if db.execute(select(User).where(User.userEmail == args.admin_email)).scalars().first():
             sys.exit(f"A user with email {args.admin_email} already exists; nothing to do.")
 

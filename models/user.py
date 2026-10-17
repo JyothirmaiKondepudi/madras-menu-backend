@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, func, Boolean, text
+from sqlalchemy import Column, String, DateTime, ForeignKey, func, Boolean, text, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -7,6 +7,11 @@ from database import Base
 
 class User(Base):
     __tablename__ = "user_data"
+    __table_args__ = (
+        # one account per email regardless of capitalization; the schemas
+        # store emails lowercase, this is the backstop for anything else
+        Index("user_data_email_lower_key", text("lower(email)"), unique=True),
+    )
 
     userId = Column("user_id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     fullName = Column("full_name", String, nullable=False)
