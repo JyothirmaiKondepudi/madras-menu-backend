@@ -28,11 +28,9 @@ def get_user_by_user_id(user_id, db: Session):
 
 
 def get_user_by_email(email, db: Session):
-    # Case-insensitive on purpose (unlike add_new_user's duplicate check
-    # below) — this is specifically the lookup auth/service.py uses to log
-    # someone in, and login shouldn't fail just because a client typed
-    # their email in different casing than however it was originally
-    # entered when their account was created.
+    # Case-insensitive, like the duplicate check in add_new_user and the
+    # unique index on lower(email): login shouldn't fail just because a
+    # client typed their email in different casing than they signed up with.
     return (
         db.execute(select(User).where(func.lower(User.userEmail) == email.lower()))
         .scalars()
@@ -41,9 +39,8 @@ def get_user_by_email(email, db: Session):
 
 
 def add_new_user(user, db: Session, created_by: User):
-    existing_user = (
-        db.execute(select(User).where(User.userEmail == user.email)).scalars().first()
-    )
+    # case-insensitive: Jane@x.com and jane@x.com are the same person
+    existing_user = get_user_by_email(user.email, db)
     if existing_user is not None:
         return None
 

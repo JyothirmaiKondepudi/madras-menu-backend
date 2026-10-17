@@ -68,3 +68,12 @@ class SubprojectUpdate(BaseModel):
         if value is None:
             raise ValueError("cuisine can't be null; send [] for no cuisines")
         return value
+
+    # leaving it out keeps the date; an explicit null used to reach the
+    # timezone conversion and crash with a 500
+    @field_validator("subprojectDate")
+    @classmethod
+    def _date_cant_be_null(cls, value):
+        if value is None:
+            raise ValueError("an event must keep its date")
+        return value

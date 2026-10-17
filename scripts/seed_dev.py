@@ -38,6 +38,7 @@ def main() -> None:
 
     db = SessionLocal()
     try:
+        args.vendor_email = args.vendor_email.strip().lower()  # stored lowercase, like the API
         if db.execute(select(User).where(User.userEmail == args.vendor_email)).scalars().first():
             sys.exit(f"A user with email {args.vendor_email} already exists; nothing to do.")
 

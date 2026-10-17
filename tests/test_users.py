@@ -1,3 +1,6 @@
+import pytest
+
+
 def test_create_user(client, vendor_auth_headers):
     resp = client.post(
         "/users",
@@ -208,3 +211,88 @@ def test_unknown_role_rejected(client, vendor_auth_headers):
     assert (
         client.post("/users", json=body, headers=vendor_auth_headers).status_code == 422
     )
+
+
+# --- one account per email, whatever the capitalization ---------------------
+
+
+def _new_client(client, headers, email, **extra):
+    return client.post("/users", json={
+        "fullName": "Case Test", "email": email, "role": "client", **extra,
+    }, headers=headers)
+
+
+def test_email_is_stored_lowercase(client, vendor_auth_headers):
+    resp = _new_client(client, vendor_auth_headers, "  Jane.Case@Example.COM ")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["userEmail"] == "jane.case@example.com"
+
+
+def test_same_email_in_different_case_is_a_duplicate(client, vendor_auth_headers):
+    assert _new_client(client, vendor_auth_headers, "Jane.Case@Example.com").status_code == 200
+    # used to create a second account that logged in as the first
+    resp = _new_client(client, vendor_auth_headers, "jane.case@example.com")
+    assert resp.status_code == 409, resp.text
+
+
+def test_changing_email_to_another_users_in_different_case_is_rejected(
+    client, test_user, vendor_auth_headers
+):
+    other = _new_client(client, vendor_auth_headers, "other.case@example.com").json()
+    resp = client.patch(
+        f"/users/{other['userId']}",
+        json={"email": test_user["userEmail"].upper()},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+
+
+def test_login_works_whatever_the_capitalization(client, vendor_auth_headers):
+    _new_client(client, vendor_auth_headers, "Login.Case@Example.com", password="correct-horse-battery-staple")
+    for typed in ("login.case@example.com", "LOGIN.CASE@EXAMPLE.COM"):
+        resp = client.post("/auth/login", json={"email": typed, "password": "correct-horse-battery-staple"})
+        assert resp.status_code == 200, (typed, resp.text)
+
+
+def test_database_rejects_a_case_duplicate_that_skips_the_api(client, engine, test_user):
+    # the unique index on lower(email) is the backstop for seed scripts and SQL
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError, match="user_data_email_lower_key"):
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO user_data (user_id, full_name, email, role, user_org, user_disabled) "
+                    "SELECT gen_random_uuid(), 'Dup', upper(email), role, user_org, false "
+                    "FROM user_data WHERE user_id = :id"
+                ),
+                {"id": test_user["userId"]},
+            )
+
+
+# --- preferredContact is email or phone ---------------------------------------
+
+
+@pytest.mark.parametrize("choice", ["email", "phone"])
+def test_preferred_contact_accepts_email_or_phone(client, vendor_auth_headers, choice):
+    resp = _new_client(client, vendor_auth_headers, f"pref.{choice}@example.com", preferredContact=choice)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["preferredContact"] == choice
+
+
+def test_preferred_contact_phone_doesnt_require_a_phone_number(client, vendor_auth_headers):
+    # deliberately not enforced: it isn't known yet what the frontend requires
+    resp = _new_client(client, vendor_auth_headers, "pref.nophone@example.com", preferredContact="phone")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["userPhoneNumber"] is None
+
+
+def test_preferred_contact_rejects_anything_else(client, test_user, vendor_auth_headers):
+    resp = _new_client(client, vendor_auth_headers, "pref.bad@example.com", preferredContact="carrier pigeon")
+    assert resp.status_code == 422, resp.text
+
+    resp = client.patch(
+        f"/users/{test_user['userId']}", json={"preferredContact": "fax"}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 422, resp.text
