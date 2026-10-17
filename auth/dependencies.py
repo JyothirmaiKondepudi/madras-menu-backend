@@ -8,6 +8,7 @@ from database import get_db
 from uuid import UUID
 from models import User, Permission, RolePermission, Project, Subproject, Invoice
 from auth.security import decode_access_token
+from services.invoices import get_live_invoice
 
 # HTTPBearer, not OAuth2PasswordBearer — login uses a JSON body, not form-encoded fields
 _bearer_scheme = HTTPBearer()
@@ -118,12 +119,7 @@ def load_invoice_in_org(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Invoice:
-    invoice = db.get(Invoice, invoice_id)
-    if (
-        invoice is None
-        # db.get can return an already-loaded row without the soft-delete filter
-        or invoice.invoiceDeletedAt is not None
-        or invoice.project.organizationId != current_user.userOrg
-    ):
+    invoice = get_live_invoice(db, invoice_id)
+    if invoice is None or invoice.project.organizationId != current_user.userOrg:
         raise HTTPException(status_code=404, detail="invoice not found")
     return invoice

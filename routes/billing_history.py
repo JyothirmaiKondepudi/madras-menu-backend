@@ -8,7 +8,7 @@ from services.billing_history import (
     record_payment,
     void_payment,
 )
-from services.invoices import get_invoice_by_id
+from services.invoices import get_live_invoice
 from fastapi import APIRouter, Depends, HTTPException
 from models import BillingHistory, User, Invoice, Subproject
 from schemas.billing_history import BillingHistoryOut, PaymentCreate, VoidPaymentRequest
@@ -36,13 +36,8 @@ def record_payment_made(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    invoice = db.get(Invoice, new_payment.invoiceId)
-    if (
-        invoice is None
-        # db.get can return an already-loaded row without the soft-delete filter
-        or invoice.invoiceDeletedAt is not None
-        or invoice.project.organizationId != current_user.userOrg
-    ):
+    invoice = get_live_invoice(db, new_payment.invoiceId)
+    if invoice is None or invoice.project.organizationId != current_user.userOrg:
         raise HTTPException(status_code=404, detail="invoice not found")
     try:
         payment = record_payment(
@@ -72,12 +67,8 @@ def void_payment_made(
 ):
     payment = db.get(BillingHistory, payment_id)
     # a deleted invoice is filtered out, so its payments read as not found too
-    invoice = db.get(Invoice, payment.invoiceId) if payment is not None else None
-    if (
-        invoice is None
-        or invoice.invoiceDeletedAt is not None
-        or invoice.project.organizationId != current_user.userOrg
-    ):
+    invoice = get_live_invoice(db, payment.invoiceId) if payment is not None else None
+    if invoice is None or invoice.project.organizationId != current_user.userOrg:
         raise HTTPException(status_code=404, detail="payment not found")
     if payment.voidedAt is not None:
         raise HTTPException(status_code=409, detail="This payment is already voided.")
