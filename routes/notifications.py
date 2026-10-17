@@ -31,7 +31,9 @@ def mark_notification_seen(
         raise HTTPException(status_code=404, detail="notification not found")
     if notification.userId != current_user.userId:
         raise HTTPException(status_code=403, detail="not authorized to modify this notification")
-    return mark_seen(db, notification)
+    notification = mark_seen(db, notification)
+    db.commit()
+    return notification
 
 
 @router.patch("/notifications/{notification_id}/read", response_model=NotificationOut)
@@ -43,4 +45,6 @@ def mark_notification_read(
         raise HTTPException(status_code=404, detail="notification not found")
     if notification.userId != current_user.userId:
         raise HTTPException(status_code=403, detail="not authorized to modify this notification")
-    return mark_read(db, notification)
+    notification = mark_read(db, notification)
+    db.commit()
+    return notification

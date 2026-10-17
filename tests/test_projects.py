@@ -141,6 +141,11 @@ def test_partial_update_project(client, test_project, vendor_auth_headers):
     # untouched fields survive
     assert resp.json()["projectStatus"] == test_project["projectStatus"]
 
+    # read back in a new request: the PATCH response alone would look right
+    # even if the route never committed
+    resp = client.get(f"/projects/{test_project['projectId']}", headers=vendor_auth_headers)
+    assert resp.json()["projectName"] == "Renamed Project"
+
 
 def _login(client, email, password="correct-horse-battery-staple"):
     resp = client.post("/auth/login", json={"email": email, "password": password})
@@ -261,6 +266,20 @@ def test_set_final_invoice(client, test_user, test_project, vendor_auth_headers)
         f"/projects/{test_project['projectId']}/final-invoice/{invoice['invoiceId']}",
         headers=vendor_auth_headers,
     )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["finalInvoiceId"] == invoice["invoiceId"]
+
+
+def test_final_invoice_is_saved(client, test_user, test_project, vendor_auth_headers):
+    # read back in a new request: the PATCH response alone would look right
+    # even if the route never committed
+    invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], vendor_auth_headers)
+    client.patch(
+        f"/projects/{test_project['projectId']}/final-invoice/{invoice['invoiceId']}",
+        headers=vendor_auth_headers,
+    )
+
+    resp = client.get(f"/projects/{test_project['projectId']}", headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["finalInvoiceId"] == invoice["invoiceId"]
 

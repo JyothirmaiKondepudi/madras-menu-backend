@@ -102,6 +102,11 @@ def test_update_user(client, test_user, vendor_auth_headers):
     # untouched fields survive a partial update
     assert resp.json()["userEmail"] == test_user["userEmail"]
 
+    # read back in a new request: the PATCH response alone would look right
+    # even if the route never committed
+    resp = client.get(f"/users/{test_user['userId']}", headers=vendor_auth_headers)
+    assert resp.json()["fullName"] == "Updated Name"
+
 
 def test_update_nonexistent_user_returns_404(client, vendor_auth_headers):
     resp = client.patch(

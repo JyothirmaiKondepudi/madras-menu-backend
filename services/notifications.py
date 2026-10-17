@@ -52,7 +52,7 @@ def mark_seen(db: Session, notification: Notification) -> Notification:
     layer handles 404/403 checks; this only mutates."""
     if notification.seenAt is None:
         notification.seenAt = datetime.now(timezone.utc)
-        db.commit()
+        db.flush()
         db.refresh(notification)
     return notification
 
@@ -68,6 +68,6 @@ def mark_read(db: Session, notification: Notification) -> Notification:
         notification.readAt = now
         changed = True
     if changed:
-        db.commit()
+        db.flush()
         db.refresh(notification)
     return notification

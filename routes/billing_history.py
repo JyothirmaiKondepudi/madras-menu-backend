@@ -45,7 +45,7 @@ def record_payment_made(
     ):
         raise HTTPException(status_code=404, detail="invoice not found")
     try:
-        return record_payment(
+        payment = record_payment(
             invoice,
             amount=new_payment.amount,
             occurred_at=new_payment.occurredAt,
@@ -55,6 +55,8 @@ def record_payment_made(
     except PaymentError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
+    db.commit()
+    return payment
 
 
 @router.post(

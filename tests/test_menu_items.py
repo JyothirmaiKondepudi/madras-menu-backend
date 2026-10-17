@@ -55,6 +55,11 @@ def test_update_menu_item(client, test_menu_item, vendor_auth_headers):
     assert resp.json()["active"] is False
     assert resp.json()["name"] == test_menu_item["name"]
 
+    # read back in a new request: the PATCH response alone would look right
+    # even if the route never committed
+    resp = client.get(f"/menu-items/{test_menu_item['id']}", headers=vendor_auth_headers)
+    assert resp.json()["active"] is False
+
 
 def test_delete_menu_item(client, test_menu_item, vendor_auth_headers):
     resp = client.delete(f"/menu-items/{test_menu_item['id']}", headers=vendor_auth_headers)

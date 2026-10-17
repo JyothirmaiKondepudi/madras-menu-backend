@@ -55,6 +55,7 @@ def create_new_organization(
             status_code=409,
             detail=f"Organization with {new_Org.orgEmail} already exists",
         )
+    db.commit()
     return created_org
 
 
@@ -100,6 +101,7 @@ def update_org_info(
         raise HTTPException(
             status_code=404, detail=f"org with id: {org_id} does not exist"
         )
+    db.commit()
     return updated_org_info
 
 
@@ -124,3 +126,4 @@ def delete_user(org_id: UUID, db: Session = Depends(get_db)):
     deleted_user = delete_org_by_org_id(org_id, db)
     if deleted_user is None:
         raise HTTPException(status_code=404, detail="Org not found")
+    db.commit()

@@ -108,6 +108,9 @@ def test_mark_notification_seen_does_not_mark_it_read(client, test_user, test_pr
     # still unread, since seeing something isn't the same as reading it
     unread_after = client.get("/notifications/unread", headers=client_auth).json()
     assert notification["id"] in [n["id"] for n in unread_after]
+    # and the seen mark was saved, not just returned
+    [after] = [n for n in unread_after if n["id"] == notification["id"]]
+    assert after["seenAt"] is not None
 
 
 def test_cannot_mark_another_users_notification(client, test_vendor_login, test_client_login, vendor_auth_headers):

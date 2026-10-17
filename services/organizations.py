@@ -26,7 +26,7 @@ def create_new_org(new_org, db):
     )
 
     db.add(created_org)
-    db.commit()
+    db.flush()
     db.refresh(created_org)
 
     return created_org
@@ -44,7 +44,7 @@ def update_org_info_by_id(org_id, updated_org, db):
     for field, value in updated_org.model_dump(exclude_unset=True).items():
         setattr(org_data, field, value)
 
-    db.commit()
+    db.flush()
     db.refresh(org_data)
 
     return org_data
@@ -56,7 +56,7 @@ def delete_org_by_org_id(org_id, db):
         return None
 
     db.delete(org)
-    db.commit()
+    db.flush()
     return org
 
 

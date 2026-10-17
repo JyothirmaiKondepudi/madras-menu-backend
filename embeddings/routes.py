@@ -24,6 +24,7 @@ def create_embedding(item_id: UUID, db: Session = Depends(get_db)):
     result = embed_menu_item(db, item_id)
     if result is None:
         raise HTTPException(status_code=404, detail="menu item not found")
+    db.commit()
     return result
 
 

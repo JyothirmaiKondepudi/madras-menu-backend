@@ -283,7 +283,7 @@ def record_payment(
     if amount == balance:
         change_invoice_status(invoice, "Paid")
 
-    db.commit()
+    db.flush()  # the route commits; that also releases the invoice lock
     db.refresh(entry)
     return entry
 

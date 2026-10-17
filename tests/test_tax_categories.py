@@ -95,6 +95,11 @@ def test_update_without_rate_keeps_it(client, vendor_auth_headers):
     assert resp.json()["name"] == "renamed"
     assert resp.json()["ratePercent"] == 7.125
 
+    # read back in a new request: the PATCH response alone would look right
+    # even if the route never committed
+    resp = client.get(f"/tax-categories/{created['id']}", headers=vendor_auth_headers)
+    assert resp.json()["name"] == "renamed"
+
 
 def test_update_rejects_null_rate(client, vendor_auth_headers):
     # the column is NOT NULL: an explicit null is a 422, not a database error

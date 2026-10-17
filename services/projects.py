@@ -67,7 +67,7 @@ def update_project_by_project_id(project_id, updates: ProjectUpdate, db: Session
     for field, value in changes.items():
         setattr(project, field, value)
 
-    db.commit()
+    db.flush()
     db.refresh(project)
     return project
 
@@ -78,7 +78,7 @@ def delete_Project_by_Project_id(project_id, db: Session):
         return None
 
     db.delete(project)
-    db.commit()
+    db.flush()
     return project
 
 
@@ -100,7 +100,7 @@ def set_final_invoice(project: Project, invoice_id, db: Session) -> Project:
     """Sets project.finalInvoiceId. The caller must validate the invoice
     belongs to this project."""
     project.finalInvoiceId = invoice_id
-    db.commit()
+    db.flush()
     db.refresh(project)
     return project
 

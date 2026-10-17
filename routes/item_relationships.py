@@ -58,7 +58,9 @@ def get_item_relationship(
 def add_item_relationship(
     new_edge: ItemRelationshipCreate, db: Session = Depends(get_db)
 ):
-    return add_new_item_relationship(new_edge, db)
+    created_edge = add_new_item_relationship(new_edge, db)
+    db.commit()
+    return created_edge
 
 
 @router.patch(
@@ -69,7 +71,9 @@ def add_item_relationship(
 def update_item_relationship(
     child_id: UUID, updates: ItemRelationshipUpdate, db: Session = Depends(get_db)
 ):
-    return update_item_relationship_by_child_id(child_id, updates, db)
+    updated_edge = update_item_relationship_by_child_id(child_id, updates, db)
+    db.commit()
+    return updated_edge
 
 
 @router.delete(
@@ -81,6 +85,7 @@ def delete_item_relationship(
     deleted = delete_item_relationship_by_child_id(child_id, db, relationship_type)
     if not deleted:
         raise HTTPException(status_code=404, detail="no such edge")
+    db.commit()
 
 
 @router.delete("/item-relationships/nodes/{item_id}", dependencies=[_manage])
@@ -90,4 +95,6 @@ def delete_hierarchy_node(
     """Removes item_id from the hierarchy entirely (not just one edge) —
     reparents its children to its own parent. See hierarchy/mutations.py's
     delete_node for the exact behavior. Does not delete the menu_items row."""
-    return delete_node_from_hierarchy(item_id, db, relationship_type)
+    result = delete_node_from_hierarchy(item_id, db, relationship_type)
+    db.commit()
+    return result

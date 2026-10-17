@@ -89,7 +89,7 @@ def update_user_by_user_id(user_id, updates: UserUpdate, db: Session):
     for field, value in updates.model_dump(exclude_unset=True).items():
         setattr(user, USER_FIELD_MAP[field], value)
 
-    db.commit()
+    db.flush()
     db.refresh(user)
     return user
 
@@ -100,7 +100,7 @@ def delete_user_by_user_id(user_id, db: Session):
         return None
 
     db.delete(user)
-    db.commit()
+    db.flush()
     return user
 
 
@@ -127,7 +127,7 @@ def disable_user_by_id(user_id, db):
     if user is None:
         return None
     user.userDisabled = True
-    db.commit()
+    db.flush()
     db.refresh(user)
     return user
 
@@ -137,6 +137,6 @@ def enable_user_by_id(user_id, db):
     if user is None:
         return None
     user.userDisabled = False
-    db.commit()
+    db.flush()
     db.refresh(user)
     return user

@@ -47,8 +47,9 @@ def upsert_embedding(
         },
     )
     db.execute(stmt)
-    db.commit()
-    return db.get(MenuItemEmbedding, item_id)
+    # populate_existing: the row may already be loaded in this session with
+    # its old values; the upsert above went around the ORM, so reload it
+    return db.get(MenuItemEmbedding, item_id, populate_existing=True)
 
 
 def embed_menu_item(db: Session, item_id: UUID) -> MenuItemEmbedding | None:

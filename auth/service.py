@@ -24,12 +24,12 @@ def change_password(
 ) -> bool:
     """Returns False (and changes nothing) if current_password is wrong or
     the account has no password set at all — same "fail closed, don't
-    distinguish why" spirit as authenticate_user. True on success, after
-    the new hash is committed."""
+    distinguish why" spirit as authenticate_user. True on success, once
+    the new hash is flushed (the route commits it)."""
     if user.passwordHash is None or not verify_password(
         current_password, user.passwordHash
     ):
         return False
     user.passwordHash = hash_password(new_password)
-    db.commit()
+    db.flush()
     return True

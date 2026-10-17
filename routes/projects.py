@@ -83,7 +83,9 @@ def set_project_final_invoice(
         raise HTTPException(
             status_code=400, detail="that invoice does not belong to this project"
         )
-    return set_final_invoice(project, invoice_id, db)
+    updated_project = set_final_invoice(project, invoice_id, db)
+    db.commit()
+    return updated_project
 
 
 @router.get("/projects/users/{user_id}", response_model=list[ProjectOut])
@@ -162,6 +164,7 @@ def update_project(
     updated_project = update_project_by_project_id(project_id, updates, db)
     if updated_project is None:
         raise HTTPException(status_code=404, detail="project not found")
+    db.commit()
     return updated_project
 
 
@@ -190,3 +193,4 @@ def delete_project(
     deleted_project = delete_Project_by_Project_id(project_id, db)
     if deleted_project is None:
         raise HTTPException(status_code=404, detail="project not found")
+    db.commit()

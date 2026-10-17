@@ -117,7 +117,7 @@ def update_subproject_by_subproject_id(subproject_id, updates, db: Session):
     if subproject.subprojectDate != old_date:
         _shift_due_dates(subproject_id, subproject.subprojectDate - old_date, db)
 
-    db.commit()
+    db.flush()
     db.refresh(subproject)
     return subproject
 
@@ -128,7 +128,7 @@ def delete_subproject_by_subproject_id(subproject_id, db: Session):
         return None
 
     db.delete(subproject)
-    db.commit()
+    db.flush()
     return subproject
 
 

@@ -38,3 +38,4 @@ def change_password_route(
     # separate, deliberately not-yet-built capability.
     if not change_password(current_user, body.currentPassword, body.newPassword, db):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
+    db.commit()

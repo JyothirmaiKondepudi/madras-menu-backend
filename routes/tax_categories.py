@@ -43,7 +43,9 @@ def get_tax_category(tax_category_id: UUID, db: Session = Depends(get_db)):
 
 @router.post("/tax-categories", response_model=TaxCategoryOut, dependencies=[_manage])
 def add_tax_category(new_category: TaxCategoryCreate, db: Session = Depends(get_db)):
-    return add_new_tax_category(new_category, db)
+    created_category = add_new_tax_category(new_category, db)
+    db.commit()
+    return created_category
 
 
 @router.patch(
@@ -57,6 +59,7 @@ def update_tax_category(
     updated_category = update_tax_category_by_id(tax_category_id, updates, db)
     if updated_category is None:
         raise HTTPException(status_code=404, detail="tax category not found")
+    db.commit()
     return updated_category
 
 
@@ -67,3 +70,4 @@ def delete_tax_category(tax_category_id: UUID, db: Session = Depends(get_db)):
     deleted_category = delete_tax_category_by_id(tax_category_id, db)
     if deleted_category is None:
         raise HTTPException(status_code=404, detail="tax category not found")
+    db.commit()

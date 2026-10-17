@@ -19,6 +19,26 @@ def test_create_edge(client, vendor_auth_headers):
     assert resp.json()["toItemId"] == parent["id"]
 
 
+def test_update_edge_moves_child_to_new_parent(client, vendor_auth_headers):
+    child = _make_item(client, "Mint Pilaf", vendor_auth_headers)
+    first_parent = _make_item(client, "Pilaf", vendor_auth_headers)
+    new_parent = _make_item(client, "Rice Dish", vendor_auth_headers)
+    client.post("/item-relationships", json={
+        "childId": child["id"], "parentId": first_parent["id"],
+    }, headers=vendor_auth_headers)
+
+    resp = client.patch(f"/item-relationships/{child['id']}", json={
+        "newParentId": new_parent["id"], "reason": "broader parent",
+    }, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["toItemId"] == new_parent["id"]
+
+    # read back in a new request: the PATCH response alone would look right
+    # even if the route never committed
+    resp = client.get(f"/item-relationships/{child['id']}", headers=vendor_auth_headers)
+    assert resp.json()["toItemId"] == new_parent["id"]
+
+
 def test_item_relationships_require_vendor(client, test_client_login):
     login_resp = client.post("/auth/login", json={
         "email": test_client_login["userEmail"],

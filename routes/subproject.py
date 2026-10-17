@@ -103,6 +103,7 @@ def update_subproject(
     updated_subproject = update_subproject_by_subproject_id(subproject_id, updates, db)
     if updated_subproject is None:
         raise HTTPException(status_code=404, detail="subproject not found")
+    db.commit()
     return updated_subproject
 
 
@@ -125,3 +126,4 @@ def delete_subproject(
     deleted_subproject = delete_subproject_by_subproject_id(subproject_id, db)
     if deleted_subproject is None:
         raise HTTPException(status_code=404, detail="subproject not found")
+    db.commit()

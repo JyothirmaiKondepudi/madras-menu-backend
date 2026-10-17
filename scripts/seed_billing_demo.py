@@ -99,6 +99,9 @@ def main() -> None:
                 for dollars in payments[label]:
                     entry = record_payment(invoice, amount=dollars, occurred_at=None,
                                            billing_metadata={"note": "demo seed"}, db=db)
+                # record_payment only flushes (the API route commits); save
+                # the acceptance and payments here, as the route would
+                db.commit()
                 info = db.get(BillingInfo, sub.subprojectId)
                 print(f"  {label:<9} subproject {sub.subprojectId}")
                 print(f"            invoice    {invoice.invoiceId}  (due ${invoice.invoiceAmount:,.2f})")

@@ -100,6 +100,7 @@ def update_user(
     updated_user = update_user_by_user_id(user_id, updates, db)
     if updated_user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    db.commit()
     return updated_user
 
 
@@ -121,6 +122,7 @@ def disable_user(
     updated_user = disable_user_by_id(user_id, db)
     if updated_user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    db.commit()
     return updated_user
 
 
@@ -137,6 +139,7 @@ def enable_user(
     updated_user = enable_user_by_id(user_id, db)
     if updated_user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    db.commit()
     return updated_user
 
 
@@ -163,3 +166,4 @@ def delete_user(
     deleted_user = delete_user_by_user_id(user_id, db)
     if deleted_user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    db.commit()

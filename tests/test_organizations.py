@@ -108,6 +108,11 @@ def test_update_own_organization(client, engine, vendor_auth_headers, test_vendo
     assert resp.json()["orgDisabled"] is True
     assert resp.json()["orgEmail"] == org["orgEmail"]
 
+    # read back in a new request: the PATCH response alone would look right
+    # even if the route never committed
+    resp = client.get(f"/organizations/{org['orgId']}", headers=platform_admin_headers)
+    assert resp.json()["orgName"] == "Renamed"
+
 
 def test_update_another_organization_forbidden(
     client, engine, vendor_auth_headers, test_vendor_login, platform_admin_headers
@@ -123,6 +128,8 @@ def test_update_another_organization_forbidden(
 def test_delete_organization(client, platform_admin_headers):
     org = _create_org(client, platform_admin_headers)
     assert client.delete(f"/organizations/{org['orgId']}", headers=platform_admin_headers).status_code == 204
+    # and it's really gone, not just reported as deleted
+    assert client.get(f"/organizations/{org['orgId']}", headers=platform_admin_headers).status_code == 404
 
 
 def test_delete_organization_forbidden_for_vendor(client, vendor_auth_headers, platform_admin_headers):

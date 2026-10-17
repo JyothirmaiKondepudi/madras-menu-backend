@@ -46,7 +46,9 @@ def get_menu_item(
     dependencies=[Depends(require_permission("menu_item:create"))],
 )
 def add_menu_item(new_item: MenuItemCreate, db: Session = Depends(get_db)):
-    return add_new_menu_item(new_item, db)
+    created_item = add_new_menu_item(new_item, db)
+    db.commit()
+    return created_item
 
 
 @router.patch(
@@ -60,6 +62,7 @@ def update_menu_item(
     updated_item = update_menu_item_by_id(item_id, updates, db)
     if updated_item is None:
         raise HTTPException(status_code=404, detail="menu item not found")
+    db.commit()
     return updated_item
 
 
@@ -72,3 +75,4 @@ def delete_menu_item(item_id: UUID, db: Session = Depends(get_db)):
     deleted_item = delete_menu_item_by_id(item_id, db)
     if deleted_item is None:
         raise HTTPException(status_code=404, detail="menu item not found")
+    db.commit()

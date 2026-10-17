@@ -403,6 +403,7 @@ def test_concurrent_payments_cannot_overpay(client, engine, test_project, test_u
         with Session(engine) as db:
             try:
                 record_payment(db.get(Invoice, invoice_id), 60, None, None, db)
+                db.commit()  # what the route does after the service
                 outcome["second"] = "recorded"
             except PaymentError as exc:
                 outcome["second"] = str(exc)
@@ -411,7 +412,7 @@ def test_concurrent_payments_cannot_overpay(client, engine, test_project, test_u
     # cleanup after the test would wait on its lock forever
     with Session(engine) as first:
         invoice = first.get(Invoice, invoice_id)
-        # record_payment commits, so lock the row by hand to hold it open
+        # lock the row by hand so the second payment has to wait for the first
         first.execute(
             select(Invoice).where(Invoice.invoiceId == invoice_id).with_for_update()
         )
@@ -419,7 +420,8 @@ def test_concurrent_payments_cannot_overpay(client, engine, test_project, test_u
         thread.start()
         thread.join(timeout=1)
         waited = thread.is_alive()
-        record_payment(invoice, 60, None, None, first)  # commits, releasing the lock
+        record_payment(invoice, 60, None, None, first)
+        first.commit()  # releases the lock
 
     thread.join(timeout=10)
     assert waited, "second payment didn't wait for the invoice lock"

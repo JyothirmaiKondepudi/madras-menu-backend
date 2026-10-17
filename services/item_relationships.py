@@ -26,8 +26,9 @@ def add_new_item_relationship(new_edge, db: Session):
         confidence=new_edge.confidence,
         reason=new_edge.reason,
     )
-    db.commit()
-    return db.get(ItemRelationship, edge_id)
+    # written through a raw cursor, around the ORM: reload in case an older
+    # copy of the row is already in this session
+    return db.get(ItemRelationship, edge_id, populate_existing=True)
 
 def update_item_relationship_by_child_id(child_id, updates, db: Session):
     cur = db.connection().connection.cursor()
@@ -39,17 +40,16 @@ def update_item_relationship_by_child_id(child_id, updates, db: Session):
         confidence=updates.confidence,
         reason=updates.reason,
     )
-    db.commit()
-    return db.get(ItemRelationship, edge_id)
+    # written through a raw cursor, around the ORM: reload in case an older
+    # copy of the row is already in this session
+    return db.get(ItemRelationship, edge_id, populate_existing=True)
 
 def delete_item_relationship_by_child_id(child_id, db: Session, relationship_type="parent_of"):
     cur = db.connection().connection.cursor()
     deleted = delete_edge(cur, child_id, relationship_type)
-    db.commit()
     return deleted
 
 def delete_node_from_hierarchy(item_id, db: Session, relationship_type="parent_of"):
     cur = db.connection().connection.cursor()
     result = delete_node(cur, item_id, relationship_type)
-    db.commit()
     return result
