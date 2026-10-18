@@ -3,7 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_valid
 from uuid import UUID
 from datetime import datetime
 
-from models.choices import EventType, Religion, ServiceStyle, Venue
+from models.choices import Diet, EventType, Religion, ServiceStyle, Venue
 from schemas.project import ProjectOut
 
 
@@ -20,6 +20,12 @@ class SubprojectOut(BaseModel):
     subprojectEvent: EventType
     minPricePerPerson: Decimal | None = None
     maxPricePerPerson: Decimal | None = None
+    venueName: str | None = None
+    venueAddress: str | None = None
+    diet: list[Diet] = []
+    allergies: list[str] = []
+    theme: str | None = None
+    themeNotes: str | None = None
     project: ProjectOut
     effectiveTimezone: str
     # subprojectDate shown in the venue's timezone
@@ -48,6 +54,12 @@ class SubprojectCreate(BaseModel):
     subprojectEvent: EventType
     minPricePerPerson: Decimal | None = None
     maxPricePerPerson: Decimal | None = None
+    venueName: str | None = None
+    venueAddress: str | None = None
+    diet: list[Diet] = Field(default_factory=list)
+    allergies: list[str] = Field(default_factory=list)
+    theme: str | None = None
+    themeNotes: str | None = None
 
 
 class SubprojectUpdate(BaseModel):
@@ -61,12 +73,20 @@ class SubprojectUpdate(BaseModel):
     subprojectEvent: EventType | None = None
     minPricePerPerson: Decimal | None = None
     maxPricePerPerson: Decimal | None = None
+    venueName: str | None = None
+    venueAddress: str | None = None
+    diet: list[Diet] | None = None
+    allergies: list[str] | None = None
+    theme: str | None = None
+    themeNotes: str | None = None
 
-    @field_validator("cuisine")
+    # list fields: leaving one out keeps it, [] clears it, and an explicit
+    # null is rejected so the column never holds NULL
+    @field_validator("cuisine", "diet", "allergies")
     @classmethod
-    def _cuisine_cant_be_null(cls, value):
+    def _list_cant_be_null(cls, value, info):
         if value is None:
-            raise ValueError("cuisine can't be null; send [] for no cuisines")
+            raise ValueError(f"{info.field_name} can't be null; send [] for none")
         return value
 
     # leaving it out keeps the date; an explicit null used to reach the
