@@ -9,7 +9,13 @@ from services.listing import Listing, Page, paginate
 from models import BillingInfo, Subproject, User
 from schemas.billing_info import BillingInfoOut
 from database import get_db
-from auth.dependencies import get_current_user, user_project_ids, user_has_permission, load_subproject_in_org
+from auth.dependencies import (
+    ensure_project_access,
+    get_current_user,
+    load_subproject_in_org,
+    user_has_permission,
+    user_project_ids,
+)
 from uuid import UUID
 
 router = APIRouter()
@@ -43,8 +49,13 @@ def get_billing_info_for_subproject(
     current_user: User = Depends(get_current_user),
     subproject: Subproject = Depends(load_subproject_in_org),
 ):
-    if not user_has_permission(current_user, "billing:view_all", db) and subproject.projectAssociatedTo not in user_project_ids(current_user):
-        raise HTTPException(status_code=403, detail="not authorized to view this subproject's billing info")
+    ensure_project_access(
+        current_user,
+        subproject.projectAssociatedTo,
+        "billing:view_all",
+        db,
+        "not authorized to view this subproject's billing info",
+    )
     info = get_billing_info_by_subproject_id(subproject_id, db)
     if info is None:
         raise HTTPException(status_code=404, detail="no billing info recorded for this subproject yet")

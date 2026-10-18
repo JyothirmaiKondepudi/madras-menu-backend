@@ -17,10 +17,11 @@ from models import User
 from schemas.user import UserOut, UserCreate, UserUpdate
 from database import get_db
 from auth.dependencies import (
+    ensure_own_or_permission,
     get_current_user,
+    load_user_in_org,
     require_permission,
     user_has_permission,
-    load_user_in_org,
 )
 from uuid import UUID
 
@@ -67,13 +68,13 @@ def get_user_by_id(
     current_user: User = Depends(get_current_user),
     user: User = Depends(load_user_in_org),
 ):
-    if (
-        not user_has_permission(current_user, "user:view_all", db)
-        and user_id != current_user.userId
-    ):
-        raise HTTPException(
-            status_code=403, detail="cannot view another user's profile"
-        )
+    ensure_own_or_permission(
+        current_user,
+        user_id == current_user.userId,
+        "user:view_all",
+        db,
+        "cannot view another user's profile",
+    )
     user = get_user_by_user_id(user_id, db)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")

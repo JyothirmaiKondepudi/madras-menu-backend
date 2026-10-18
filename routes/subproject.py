@@ -18,12 +18,13 @@ from models import Subproject, User, Project
 from schemas.subproject import SubprojectOut, SubprojectCreate, SubprojectUpdate
 from database import get_db
 from auth.dependencies import (
+    ensure_project_access,
     get_current_user,
-    user_project_ids,
+    load_project_in_org,
+    load_subproject_in_org,
     require_permission,
     user_has_permission,
-    load_subproject_in_org,
-    load_project_in_org,
+    user_project_ids,
 )
 from uuid import UUID
 
@@ -77,12 +78,13 @@ def getSubprojectByProjectId(
     current_user: User = Depends(get_current_user),
     project: Project = Depends(load_project_in_org),
 ):
-    if not user_has_permission(
-        current_user, "subproject:view_all", db
-    ) and project_id not in user_project_ids(current_user):
-        raise HTTPException(
-            status_code=403, detail="not authorized to view this project's subprojects"
-        )
+    ensure_project_access(
+        current_user,
+        project_id,
+        "subproject:view_all",
+        db,
+        "not authorized to view this project's subprojects",
+    )
     stmt = subprojects_in_project_query(project_id)
     return _list_subprojects(db, stmt, listing, date_from, date_to, event_type)
 
@@ -96,12 +98,13 @@ def get_subproject_by_id(
 ):
     if sub_project is None:
         raise HTTPException(status_code=404, detail="subproject not found")
-    if not user_has_permission(
-        current_user, "subproject:view_all", db
-    ) and sub_project.projectAssociatedTo not in user_project_ids(current_user):
-        raise HTTPException(
-            status_code=403, detail="not authorized to view this subproject"
-        )
+    ensure_project_access(
+        current_user,
+        sub_project.projectAssociatedTo,
+        "subproject:view_all",
+        db,
+        "not authorized to view this subproject",
+    )
     return sub_project
 
 

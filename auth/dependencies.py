@@ -1,13 +1,18 @@
 import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import get_db
 from uuid import UUID
-from models import User, Permission, RolePermission, Project, Subproject, Invoice
+from models import User, Project, Subproject, Invoice
 from auth.security import decode_access_token
+# re-exported: routes import these from here
+from auth.access import (  # noqa: F401
+    ensure_own_or_permission,
+    ensure_project_access,
+    user_has_permission,
+)
 from services.invoices import get_live_invoice
 
 # HTTPBearer, not OAuth2PasswordBearer — login uses a JSON body, not form-encoded fields
@@ -41,20 +46,6 @@ def get_current_user(
     # read by response schemas that depend on the viewer (see auth/viewer.py)
     request.state.user_role = user.userRole
     return user
-
-
-def user_has_permission(user: User, permission_name: str, db: Session) -> bool:
-    """Table-driven permission check against role_permissions/permissions."""
-    return (
-        db.execute(
-            select(RolePermission)
-            .join(Permission, Permission.id == RolePermission.permissionId)
-            .where(
-                RolePermission.role == user.userRole, Permission.name == permission_name
-            )
-        ).first()
-        is not None
-    )
 
 
 def require_permission(permission_name: str):
