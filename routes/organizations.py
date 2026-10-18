@@ -22,9 +22,9 @@ from services.organizations import (
     get_project_count,
 )
 from auth.dependencies import (
+    ensure_own_or_permission,
     get_current_user,
     require_permission,
-    user_has_permission,
 )
 
 router = APIRouter()
@@ -74,11 +74,13 @@ def get_org_by_id(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if (
-        not user_has_permission(current_user, "org:view_all", db)
-        and org_id != current_user.userOrg
-    ):
-        raise HTTPException(status_code=403, detail="cannot view another org's profile")
+    ensure_own_or_permission(
+        current_user,
+        org_id == current_user.userOrg,
+        "org:view_all",
+        db,
+        "cannot view another org's profile",
+    )
     org_info = get_org_info_by_id(org_id, db)
     if org_info is None:
         raise HTTPException(
@@ -98,13 +100,13 @@ def update_org_info(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if (
-        not user_has_permission(current_user, "org:view_all", db)
-        and org_id != current_user.userOrg
-    ):
-        raise HTTPException(
-            status_code=403, detail="cannot update another org's profile"
-        )
+    ensure_own_or_permission(
+        current_user,
+        org_id == current_user.userOrg,
+        "org:view_all",
+        db,
+        "cannot update another org's profile",
+    )
     updated_org_info = update_org_info_by_id(org_id, updated_org, db)
     if updated_org_info is None:
         raise HTTPException(

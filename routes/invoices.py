@@ -25,13 +25,14 @@ from models import Invoice, User, Project, Subproject
 from schemas.invoice import InvoiceOut, InvoiceCreate, InvoiceUpdate
 from database import get_db
 from auth.dependencies import (
+    ensure_own_or_permission,
+    ensure_project_access,
     get_current_user,
-    require_permission,
-    user_has_permission,
-    user_project_ids,
     load_invoice_in_org,
     load_project_in_org,
     load_user_in_org,
+    require_permission,
+    user_has_permission,
 )
 import logging
 from uuid import UUID
@@ -96,12 +97,13 @@ def getInvoicesByProjectId(
     current_user: User = Depends(get_current_user),
     project: Project = Depends(load_project_in_org),
 ):
-    if not user_has_permission(
-        current_user, "invoice:view_all", db
-    ) and project_id not in user_project_ids(current_user):
-        raise HTTPException(
-            status_code=403, detail="not authorized to view this project's invoices"
-        )
+    ensure_project_access(
+        current_user,
+        project_id,
+        "invoice:view_all",
+        db,
+        "not authorized to view this project's invoices",
+    )
     stmt = invoices_in_project_query(project_id)
     return _list_invoices(db, stmt, listing, status, due_from, due_to, overdue)
 
@@ -115,13 +117,13 @@ def getinvoiceById(
 ):
     if invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
-    if (
-        not user_has_permission(current_user, "invoice:view_all", db)
-        and invoice.invoiceAssignedTo != current_user.userId
-    ):
-        raise HTTPException(
-            status_code=403, detail="not authorized to view this invoice"
-        )
+    ensure_own_or_permission(
+        current_user,
+        invoice.invoiceAssignedTo == current_user.userId,
+        "invoice:view_all",
+        db,
+        "not authorized to view this invoice",
+    )
     return invoice
 
 
@@ -283,13 +285,13 @@ def accept_invoice(
 
     if invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
-    if (
-        not user_has_permission(current_user, "invoice:view_all", db)
-        and invoice.invoiceAssignedTo != current_user.userId
-    ):
-        raise HTTPException(
-            status_code=403, detail="not authorized to respond to this invoice"
-        )
+    ensure_own_or_permission(
+        current_user,
+        invoice.invoiceAssignedTo == current_user.userId,
+        "invoice:view_all",
+        db,
+        "not authorized to respond to this invoice",
+    )
 
     return _respond(invoice, "Accepted", db, current_user)
 
@@ -303,13 +305,13 @@ def reject_invoice(
 ):
     if invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
-    if (
-        not user_has_permission(current_user, "invoice:view_all", db)
-        and invoice.invoiceAssignedTo != current_user.userId
-    ):
-        raise HTTPException(
-            status_code=403, detail="not authorized to respond to this invoice"
-        )
+    ensure_own_or_permission(
+        current_user,
+        invoice.invoiceAssignedTo == current_user.userId,
+        "invoice:view_all",
+        db,
+        "not authorized to respond to this invoice",
+    )
     return _respond(invoice, "Declined", db, current_user)
 
 
@@ -320,13 +322,13 @@ def get_invoice_pdf(
     current_user: User = Depends(get_current_user),
     invoice: Invoice = Depends(load_invoice_in_org),
 ):
-    if (
-        not user_has_permission(current_user, "invoice:view_all", db)
-        and invoice.invoiceAssignedTo != current_user.userId
-    ):
-        raise HTTPException(
-            status_code=403, detail="not authorized to view this invoice"
-        )
+    ensure_own_or_permission(
+        current_user,
+        invoice.invoiceAssignedTo == current_user.userId,
+        "invoice:view_all",
+        db,
+        "not authorized to view this invoice",
+    )
 
     path = invoice_pdf_path(invoice_id)
     if not path.exists():

@@ -20,13 +20,14 @@ from schemas.timeline import TimelineEntryOut
 from services.timeline import describe_payment, project_timeline_query, record_follow_up
 from database import get_db
 from auth.dependencies import (
+    ensure_own_or_permission,
+    ensure_project_access,
     get_current_user,
-    user_project_ids,
-    require_permission,
-    user_has_permission,
+    load_invoice_in_org,
     load_project_in_org,
     load_user_in_org,
-    load_invoice_in_org,
+    require_permission,
+    user_has_permission,
 )
 from uuid import UUID
 
@@ -135,13 +136,13 @@ def getProjectsByUserID(
     user: User = Depends(load_user_in_org),
     current_user: User = Depends(get_current_user),
 ):
-    if (
-        not user_has_permission(current_user, "project:view_all", db)
-        and user_id != current_user.userId
-    ):
-        raise HTTPException(
-            status_code=403, detail="cannot view another user's projects"
-        )
+    ensure_own_or_permission(
+        current_user,
+        user_id == current_user.userId,
+        "project:view_all",
+        db,
+        "cannot view another user's projects",
+    )
     stmt = projects_for_user_query(user_id)
     return _list_projects(db, stmt, listing, status, start_from, start_to, search)
 
@@ -156,12 +157,13 @@ def getProjectById(
     project_info = get_project_by_id(project_id, db)
     if project_info is None:
         raise HTTPException(status_code=404, detail="project not found")
-    if not user_has_permission(
-        current_user, "project:view_all", db
-    ) and project_id not in user_project_ids(current_user):
-        raise HTTPException(
-            status_code=403, detail="not authorized to view this project"
-        )
+    ensure_project_access(
+        current_user,
+        project_id,
+        "project:view_all",
+        db,
+        "not authorized to view this project",
+    )
     return project_info
 
 

@@ -17,12 +17,14 @@ from models import BillingHistory, User, Invoice, Subproject
 from schemas.billing_history import BillingHistoryOut, PaymentCreate, VoidPaymentRequest
 from database import get_db
 from auth.dependencies import (
+    ensure_own_or_permission,
+    ensure_project_access,
     get_current_user,
-    user_project_ids,
-    user_has_permission,
-    require_permission,
     load_invoice_in_org,
     load_subproject_in_org,
+    require_permission,
+    user_has_permission,
+    user_project_ids,
 )
 from uuid import UUID
 
@@ -141,13 +143,13 @@ def get_billing_history_for_subproject(
     current_user: User = Depends(get_current_user),
     subproject: Subproject = Depends(load_subproject_in_org),
 ):
-    if not user_has_permission(
-        current_user, "billing:view_all", db
-    ) and subproject.projectAssociatedTo not in user_project_ids(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail="not authorized to view this subproject's billing history",
-        )
+    ensure_project_access(
+        current_user,
+        subproject.projectAssociatedTo,
+        "billing:view_all",
+        db,
+        "not authorized to view this subproject's billing history",
+    )
     stmt = billing_history_for_subproject_query(subproject_id)
     return _list_billing_history(db, stmt, listing, event_type, occurred_from, occurred_to)
 
@@ -167,13 +169,12 @@ def get_billing_history_for_invoice(
 ):
     if invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
-    if (
-        not user_has_permission(current_user, "billing:view_all", db)
-        and invoice.invoiceAssignedTo != current_user.userId
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="not authorized to view this invoice's billing history",
-        )
+    ensure_own_or_permission(
+        current_user,
+        invoice.invoiceAssignedTo == current_user.userId,
+        "billing:view_all",
+        db,
+        "not authorized to view this invoice's billing history",
+    )
     stmt = billing_history_for_invoice_query(invoice_id)
     return _list_billing_history(db, stmt, listing, event_type, occurred_from, occurred_to)
