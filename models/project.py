@@ -63,6 +63,12 @@ class Project(Base):
     )
     # IANA name of the venue's timezone when it differs from the org's; null = use the org's
     projectTimezone = Column("project_timezone", String, nullable=True)
+    # Follow-up tracking (BE-14). lastFollowedUpAt is set when a follow-up is
+    # recorded (POST /projects/{id}/follow-ups, which also adds it to the
+    # timeline); nextFollowUpAt is when the next one is due, null if none is
+    # scheduled.
+    lastFollowedUpAt = Column("last_followed_up_at", DateTime(timezone=True), nullable=True)
+    nextFollowUpAt = Column("next_follow_up_at", DateTime(timezone=True), nullable=True)
     createdAt = Column(
         "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
     )
