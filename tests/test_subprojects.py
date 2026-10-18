@@ -222,3 +222,83 @@ def test_update_rejects_null_event_date(client, test_project, vendor_auth_header
 
     resp = client.get(f"/subprojects/{created['subprojectId']}", headers=vendor_auth_headers)
     assert resp.json()["subprojectDate"] == created["subprojectDate"]
+
+
+# --- catering brief (BE-05) ---------------------------------------------------
+
+
+def test_create_subproject_with_catering_brief(client, test_project, vendor_auth_headers):
+    body = _subproject_body(test_project["projectId"]) | {
+        "venueName": "Hyatt Regency Ballroom",
+        "venueAddress": "1 Main St, Tampa, FL",
+        "diet": ["Vegetarian", "Jain"],
+        "allergies": ["Peanuts", "Shellfish"],
+        "theme": "Royal Rajasthani",
+        "themeNotes": "Marigold garlands, brass serveware",
+    }
+    resp = client.post("/subprojects", json=body, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+
+    saved = client.get(f"/subprojects/{resp.json()['subprojectId']}", headers=vendor_auth_headers).json()
+    for field in ("venueName", "venueAddress", "diet", "allergies", "theme", "themeNotes"):
+        assert saved[field] == body[field], field
+
+
+def test_catering_brief_is_optional(client, test_project, vendor_auth_headers):
+    # existing callers that send none of the new fields keep working
+    resp = client.post("/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["diet"] == [] and body["allergies"] == []
+    assert body["venueName"] is None and body["theme"] is None
+
+
+def test_diet_must_come_from_the_picklist(client, test_project, vendor_auth_headers):
+    body = _subproject_body(test_project["projectId"]) | {"diet": ["Vegetarian", "Paleo"]}
+    resp = client.post("/subprojects", json=body, headers=vendor_auth_headers)
+    assert resp.status_code == 422, resp.text
+
+
+def test_update_catering_brief(client, test_project, vendor_auth_headers):
+    created = _subproject_with_cuisine(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{created['subprojectId']}",
+        json={"diet": ["Halal"], "allergies": ["Sesame"], "venueName": "Community Hall"},
+        headers=vendor_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    saved = client.get(f"/subprojects/{created['subprojectId']}", headers=vendor_auth_headers).json()
+    assert saved["diet"] == ["Halal"]
+    assert saved["allergies"] == ["Sesame"]
+    assert saved["venueName"] == "Community Hall"
+
+
+@pytest.mark.parametrize("field", ["diet", "allergies"])
+def test_update_rejects_null_brief_lists(client, test_project, vendor_auth_headers, field):
+    created = _subproject_with_cuisine(client, test_project["projectId"], vendor_auth_headers)
+    resp = client.patch(
+        f"/subprojects/{created['subprojectId']}", json={field: None}, headers=vendor_auth_headers
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.parametrize("field", ["subprojectType", "subprojectVenue", "subprojectEvent"])
+def test_other_is_accepted_for_each_choice_list(client, test_project, vendor_auth_headers, field):
+    body = _subproject_body(test_project["projectId"]) | {field: "Other"}
+    resp = client.post("/subprojects", json=body, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()[field] == "Other"
+
+
+def test_database_rejects_a_diet_outside_the_picklist(engine, client, test_project, vendor_auth_headers):
+    # the CHECK constraint is the backstop for anything that skips the schemas
+    created = client.post(
+        "/subprojects", json=_subproject_body(test_project["projectId"]), headers=vendor_auth_headers
+    ).json()
+    with pytest.raises(IntegrityError, match="subprojects_diet_check"):
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE subprojects SET diet = ARRAY['Paleo'] WHERE subproject_id = :id"),
+                {"id": created["subprojectId"]},
+            )

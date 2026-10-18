@@ -51,6 +51,12 @@ def add_new_subproject(new_subproject, db: Session, actor_id=None):
         subprojectEvent=new_subproject.subprojectEvent,
         minPricePerPerson=new_subproject.minPricePerPerson,
         maxPricePerPerson=new_subproject.maxPricePerPerson,
+        venueName=new_subproject.venueName,
+        venueAddress=new_subproject.venueAddress,
+        diet=new_subproject.diet,
+        allergies=new_subproject.allergies,
+        theme=new_subproject.theme,
+        themeNotes=new_subproject.themeNotes,
     )
     db.add(created_subproject)
     db.flush()

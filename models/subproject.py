@@ -9,12 +9,21 @@ from sqlalchemy import (
     ARRAY,
     Numeric,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
 from database import Base
-from models.choices import EventType, Religion, ServiceStyle, Venue, check_in
+from models.choices import (
+    Diet,
+    EventType,
+    Religion,
+    ServiceStyle,
+    Venue,
+    check_all_in,
+    check_in,
+)
 from services.timezones import to_local
 
 
@@ -34,6 +43,7 @@ class Subproject(Base):
             check_in("subproject_event", EventType),
             name="subprojects_subproject_event_check",
         ),
+        CheckConstraint(check_all_in("diet", Diet), name="subprojects_diet_check"),
         # invoices point at (subproject_id, project_associated_to) to prove the
         # subproject is in the invoice's project; a foreign key needs a unique target
         UniqueConstraint(
@@ -77,6 +87,19 @@ class Subproject(Base):
     )
     minPricePerPerson = Column("min_price_per_person", Numeric(12, 2))
     maxPricePerPerson = Column("max_price_per_person", Numeric(12, 2))
+
+    # The catering brief (BE-05). subprojectVenue is the kind of venue
+    # (Hotel, Home, ...); venueName and venueAddress say which one.
+    venueName = Column("venue_name", String)
+    venueAddress = Column("venue_address", String)
+    # lists default to empty, never NULL, so responses can always treat
+    # them as lists; diet values come from models/choices.py
+    diet = Column("diet", ARRAY(String), nullable=False, server_default=text("'{}'"))
+    allergies = Column(
+        "allergies", ARRAY(String), nullable=False, server_default=text("'{}'")
+    )
+    theme = Column("theme", String)
+    themeNotes = Column("theme_notes", String)
 
     project = relationship("Project")
 
