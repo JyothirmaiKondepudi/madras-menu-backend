@@ -3,8 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 
-def get_all_menu_items(db: Session):
-    return db.execute(select(MenuItem)).scalars().all()
+def menu_items_query():
+    return select(MenuItem)
+
 
 def get_menu_item_by_id(item_id, db: Session):
     return db.get(MenuItem, item_id)

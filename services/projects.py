@@ -8,16 +8,12 @@ from services.notifications import create_notification
 from services.timezones import effective_timezone, to_instant
 
 
-def get_all_projects(organization_id, db: Session):
+def projects_in_org_query(organization_id):
     """All projects in the given organization."""
     return (
-        db.execute(
-            select(Project)
-            .where(Project.organizationId == organization_id)
-            .options(selectinload(Project.users))
-        )
-        .scalars()
-        .all()
+        select(Project)
+        .where(Project.organizationId == organization_id)
+        .options(selectinload(Project.users))
     )
 
 
@@ -82,17 +78,13 @@ def delete_Project_by_Project_id(project_id, db: Session):
     return project
 
 
-def get_all_projects_by_user_id(user_id, db: Session):
+def projects_for_user_query(user_id):
     """Projects the user is linked to via user_projects."""
     return (
-        db.execute(
-            select(Project)
-            .join(user_projects, user_projects.c.project_id == Project.projectId)
-            .where(user_projects.c.user_id == user_id)
-            .options(selectinload(Project.users))
-        )
-        .scalars()
-        .all()
+        select(Project)
+        .join(user_projects, user_projects.c.project_id == Project.projectId)
+        .where(user_projects.c.user_id == user_id)
+        .options(selectinload(Project.users))
     )
 
 

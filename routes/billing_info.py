@@ -1,11 +1,12 @@
 from sqlalchemy.orm import Session
 from services.billing_info import (
-    get_all_billing_info,
-    get_billing_info_by_project_ids,
+    billing_info_in_org_query,
+    billing_info_in_projects_query,
     get_billing_info_by_subproject_id,
 )
 from fastapi import APIRouter, Depends, HTTPException
-from models import Subproject, User
+from services.listing import Listing, Page, paginate
+from models import BillingInfo, Subproject, User
 from schemas.billing_info import BillingInfoOut
 from database import get_db
 from auth.dependencies import get_current_user, user_project_ids, user_has_permission, load_subproject_in_org
@@ -13,11 +14,27 @@ from uuid import UUID
 
 router = APIRouter()
 
-@router.get("/billing-info", response_model=list[BillingInfoOut])
-def get_billing_info(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+BILLING_INFO_SORTS = {
+    "balanceDue": BillingInfo.balanceDue,
+    "totalInvoiced": BillingInfo.totalInvoiced,
+    "totalPaid": BillingInfo.totalPaid,
+    "nextDueDate": BillingInfo.nextDueDate,
+}
+
+
+@router.get("/billing-info", response_model=Page[BillingInfoOut])
+def get_billing_info(
+    listing: Listing,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     if user_has_permission(current_user, "billing:view_all", db):
-        return get_all_billing_info(current_user.userOrg, db)
-    return get_billing_info_by_project_ids(user_project_ids(current_user), db)
+        stmt = billing_info_in_org_query(current_user.userOrg)
+    else:
+        stmt = billing_info_in_projects_query(user_project_ids(current_user))
+    return paginate(
+        db, stmt, listing, BILLING_INFO_SORTS, "nextDueDate", BillingInfo.subprojectId
+    )
 
 @router.get("/subprojects/{subproject_id}/billing-info", response_model=BillingInfoOut)
 def get_billing_info_for_subproject(

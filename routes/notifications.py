@@ -7,7 +7,9 @@ from database import get_db
 from models import User
 from auth.dependencies import get_current_user
 from schemas.notification import NotificationOut
-from services.notifications import get_unread_notifications, get_notification_by_id, mark_seen, mark_read
+from models import Notification
+from services.notifications import unread_notifications_query, get_notification_by_id, mark_seen, mark_read
+from services.listing import Listing, Page, paginate
 
 router = APIRouter()
 
@@ -17,9 +19,23 @@ router = APIRouter()
 # permission required beyond being logged in.
 
 
-@router.get("/notifications/unread", response_model=list[NotificationOut])
-def list_unread_notifications(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return get_unread_notifications(db, current_user.userId)
+NOTIFICATION_SORTS = {"createdAt": Notification.createdAt}
+
+
+@router.get("/notifications/unread", response_model=Page[NotificationOut])
+def list_unread_notifications(
+    listing: Listing,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return paginate(
+        db,
+        unread_notifications_query(current_user.userId),
+        listing,
+        NOTIFICATION_SORTS,
+        "-createdAt",
+        Notification.id,
+    )
 
 
 @router.post("/notifications/{notification_id}/seen", response_model=NotificationOut)

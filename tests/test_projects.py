@@ -95,7 +95,7 @@ def test_get_projects_by_user_id(client, test_user, test_project, vendor_auth_he
         f"/users/{test_user['userId']}/projects", headers=vendor_auth_headers
     )
     assert resp.status_code == 200
-    assert any(p["projectId"] == test_project["projectId"] for p in resp.json())
+    assert any(p["projectId"] == test_project["projectId"] for p in resp.json()["items"])
 
 
 def test_get_projects_by_user_id_forbidden_for_another_user(
@@ -161,14 +161,14 @@ def test_vendor_sees_all_projects(client, test_vendor_login, test_project):
     token = _login(client, test_vendor_login["userEmail"])
     resp = client.get("/projects", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert any(p["projectId"] == test_project["projectId"] for p in resp.json())
+    assert any(p["projectId"] == test_project["projectId"] for p in resp.json()["items"])
 
 
 def test_client_sees_no_projects_until_linked(client, test_client_login, test_project):
     token = _login(client, test_client_login["userEmail"])
     resp = client.get("/projects", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json()["items"] == []
 
 
 def test_add_user_to_project_then_client_sees_it(
@@ -183,7 +183,7 @@ def test_add_user_to_project_then_client_sees_it(
     token = _login(client, test_client_login["userEmail"])
     resp = client.get("/projects", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert any(p["projectId"] == test_project["projectId"] for p in resp.json())
+    assert any(p["projectId"] == test_project["projectId"] for p in resp.json()["items"])
 
 
 def test_add_user_to_project_requires_vendor(client, test_client_login, test_project):
@@ -372,10 +372,10 @@ def test_linked_client_sees_project_on_every_route(
         "Authorization": f"Bearer {_login(client, test_client_login['userEmail'])}"
     }
 
-    listed = client.get("/projects", headers=headers).json()
+    listed = client.get("/projects", headers=headers).json()["items"]
     by_user = client.get(
         f"/users/{test_client_login['userId']}/projects", headers=headers
-    ).json()
+    ).json()["items"]
     assert [p["projectId"] for p in listed] == [test_project["projectId"]]
     assert [p["projectId"] for p in by_user] == [test_project["projectId"]]
     assert (
@@ -453,7 +453,7 @@ def test_client_sees_only_themselves_on_a_shared_project(
     assert other["userEmail"] not in resp.text
     assert other["userPhoneNumber"] not in resp.text
 
-    listed = client.get("/projects", headers=client_auth).json()
+    listed = client.get("/projects", headers=client_auth).json()["items"]
     [same] = [p for p in listed if p["projectId"] == test_project["projectId"]]
     assert [c["userId"] for c in same["clients"]] == [test_client_login["userId"]]
 

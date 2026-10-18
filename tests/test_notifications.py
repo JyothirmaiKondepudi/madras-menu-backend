@@ -32,7 +32,7 @@ def test_creating_user_notifies_the_creator(client, vendor_auth_headers, test_ve
     assert resp.status_code == 200, resp.text
     new_user_id = resp.json()["userId"]
 
-    unread = client.get("/notifications/unread", headers=vendor_auth_headers).json()
+    unread = client.get("/notifications/unread", headers=vendor_auth_headers).json()["items"]
     matching = [n for n in unread if n["type"] == "user_created" and n["relatedUserId"] == new_user_id]
     assert len(matching) == 1
     assert "New Invitee" in matching[0]["message"]
@@ -51,7 +51,7 @@ def test_invoice_generated_notifies_the_billed_client(client, test_user, test_pr
     invoice_id = resp.json()["invoiceId"]
 
     client_token = _login(client, test_client_login["userEmail"])
-    unread = client.get("/notifications/unread", headers={"Authorization": f"Bearer {client_token}"}).json()
+    unread = client.get("/notifications/unread", headers={"Authorization": f"Bearer {client_token}"}).json()["items"]
     matching = [n for n in unread if n["type"] == "invoice_generated" and n["relatedInvoiceId"] == invoice_id]
     assert len(matching) == 1
 
@@ -69,7 +69,7 @@ def test_mark_notification_read_sets_both_seen_and_read(client, test_user, test_
 
     client_token = _login(client, test_client_login["userEmail"])
     client_auth = {"Authorization": f"Bearer {client_token}"}
-    unread = client.get("/notifications/unread", headers=client_auth).json()
+    unread = client.get("/notifications/unread", headers=client_auth).json()["items"]
     notification = next(n for n in unread if n["relatedInvoiceId"] == invoice_id)
     assert notification["seenAt"] is None
     assert notification["readAt"] is None
@@ -80,7 +80,7 @@ def test_mark_notification_read_sets_both_seen_and_read(client, test_user, test_
     assert marked.json()["readAt"] is not None
 
     # read notifications drop out of the unread list
-    unread_after = client.get("/notifications/unread", headers=client_auth).json()
+    unread_after = client.get("/notifications/unread", headers=client_auth).json()["items"]
     assert notification["id"] not in [n["id"] for n in unread_after]
 
 
@@ -97,7 +97,7 @@ def test_mark_notification_seen_does_not_mark_it_read(client, test_user, test_pr
 
     client_token = _login(client, test_client_login["userEmail"])
     client_auth = {"Authorization": f"Bearer {client_token}"}
-    unread = client.get("/notifications/unread", headers=client_auth).json()
+    unread = client.get("/notifications/unread", headers=client_auth).json()["items"]
     notification = next(n for n in unread if n["relatedInvoiceId"] == invoice_id)
 
     marked = client.post(f"/notifications/{notification['id']}/seen", headers=client_auth)
@@ -106,7 +106,7 @@ def test_mark_notification_seen_does_not_mark_it_read(client, test_user, test_pr
     assert marked.json()["readAt"] is None
 
     # still unread, since seeing something isn't the same as reading it
-    unread_after = client.get("/notifications/unread", headers=client_auth).json()
+    unread_after = client.get("/notifications/unread", headers=client_auth).json()["items"]
     assert notification["id"] in [n["id"] for n in unread_after]
     # and the seen mark was saved, not just returned
     [after] = [n for n in unread_after if n["id"] == notification["id"]]
@@ -126,7 +126,7 @@ def test_cannot_mark_another_users_notification(client, test_vendor_login, test_
     client_token = _login(client, test_client_login["userEmail"])
     unread = client.get(
         "/notifications/unread", headers={"Authorization": f"Bearer {client_token}"}
-    ).json()
+    ).json()["items"]
     notification = next(n for n in unread if n["relatedInvoiceId"] == invoice_id)
 
     # a second, unrelated client tries to mark someone else's notification

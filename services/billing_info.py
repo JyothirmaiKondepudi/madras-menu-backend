@@ -7,21 +7,24 @@ def get_billing_info_by_subproject_id(subproject_id, db: Session):
     # subprojectId IS the primary key here — one row per subproject.
     return db.get(BillingInfo, subproject_id)
 
-def get_all_billing_info(organization_id, db: Session):
+def billing_info_in_org_query(organization_id):
     """Every subproject summary in the caller's org, via subproject -> project."""
-    return db.execute(
+    return (
         select(BillingInfo)
         .join(Subproject, BillingInfo.subprojectId == Subproject.subprojectId)
         .join(Project, Subproject.projectAssociatedTo == Project.projectId)
         .where(Project.organizationId == organization_id)
-    ).scalars().all()
+    )
 
-def get_billing_info_by_project_ids(project_ids, db: Session):
-    """For a non-vendor's GET /billing-info — every subproject's summary
+
+def billing_info_in_projects_query(project_ids):
+    """For a non-vendor's GET /billing-info: every subproject's summary
     belonging to any project they're linked to, same scoping rule as
-    services/billing_history.py's get_billing_history_by_project_ids."""
-    return db.execute(
+    services/billing_history.py's billing_history_in_projects_query."""
+    return (
         select(BillingInfo)
         .join(Subproject, BillingInfo.subprojectId == Subproject.subprojectId)
         .where(Subproject.projectAssociatedTo.in_(project_ids))
-    ).scalars().all()
+    )
+
+

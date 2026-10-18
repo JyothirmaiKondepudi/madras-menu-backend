@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User
+from models import Organization, User
+from services.listing import Listing, Page, paginate
 from schemas.organizations import (
     OrganizationOut,
     OrganizationCreate,
@@ -12,7 +13,7 @@ from schemas.organizations import (
 )
 from auth.dependencies import get_current_user
 from services.organizations import (
-    get_organizations,
+    organizations_query,
     create_new_org,
     get_org_info_by_id,
     update_org_info_by_id,
@@ -29,13 +30,21 @@ from auth.dependencies import (
 router = APIRouter()
 
 
+ORGANIZATION_SORTS = {
+    "orgName": Organization.orgName,
+    "createdAt": Organization.orgCreatedAt,
+}
+
+
 @router.get(
     "/organizations",
-    response_model=list[OrganizationOut],
+    response_model=Page[OrganizationOut],
     dependencies=[Depends(require_permission("org:view_all"))],
 )
-def get_all_organizations(db: Session = Depends(get_db)):
-    return get_organizations(db)
+def get_all_organizations(listing: Listing, db: Session = Depends(get_db)):
+    return paginate(
+        db, organizations_query(), listing, ORGANIZATION_SORTS, "orgName", Organization.orgId
+    )
 
 
 @router.post(

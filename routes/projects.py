@@ -3,15 +3,17 @@ from services.projects import (
     add_new_Project,
     add_user_to_project,
     delete_Project_by_Project_id,
-    get_all_projects,
-    get_all_projects_by_user_id,
+    projects_for_user_query,
+    projects_in_org_query,
     get_invoice_count,
     get_project_by_id,
     get_sub_project_count,
     set_final_invoice,
     update_project_by_project_id,
 )
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from models import Project, User, Invoice
 from schemas.project import ProjectOut, ProjectCreate, ProjectUpdate
 from database import get_db
@@ -26,20 +28,51 @@ from auth.dependencies import (
 )
 from uuid import UUID
 
+from services.listing import Listing, Page, paginate
+
 router = APIRouter()
 
 
-@router.get("/projects", response_model=list[ProjectOut])
+PROJECT_SORTS = {
+    "projectName": Project.projectName,
+    "projectStatus": Project.projectStatus,
+    "projectStartDate": Project.projectStartDate,
+    "projectEndDate": Project.projectEndDate,
+    "createdAt": Project.createdAt,
+}
+ProjectStatus = ProjectOut.model_fields["projectStatus"].annotation
+
+
+def _list_projects(db, stmt, listing, status, start_from, start_to, search):
+    if status is not None:
+        stmt = stmt.where(Project.projectStatus == status)
+    if start_from is not None:
+        stmt = stmt.where(Project.projectStartDate >= start_from)
+    if start_to is not None:
+        stmt = stmt.where(Project.projectStartDate <= start_to)
+    if search:
+        stmt = stmt.where(Project.projectName.ilike(f"%{search}%"))
+    return paginate(db, stmt, listing, PROJECT_SORTS, "-createdAt", Project.projectId)
+
+
+@router.get("/projects", response_model=Page[ProjectOut])
 def get_projects(
+    listing: Listing,
+    status: ProjectStatus | None = None,
+    start_from: datetime | None = Query(None, alias="startFrom"),
+    start_to: datetime | None = Query(None, alias="startTo"),
+    search: str | None = Query(None, description="part of the project name"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     # vendor (or any future role granted project:view_all) sees every
     # project in their OWN organization; anyone else only sees projects
-    # they're linked to via user_projects (current_user.projects).
+    # they're linked to via user_projects.
     if user_has_permission(current_user, "project:view_all", db):
-        return get_all_projects(current_user.userOrg, db)
-    return current_user.projects
+        stmt = projects_in_org_query(current_user.userOrg)
+    else:
+        stmt = projects_for_user_query(current_user.userId)
+    return _list_projects(db, stmt, listing, status, start_from, start_to, search)
 
 
 @router.post(
@@ -88,9 +121,14 @@ def set_project_final_invoice(
     return updated_project
 
 
-@router.get("/users/{user_id}/projects", response_model=list[ProjectOut])
+@router.get("/users/{user_id}/projects", response_model=Page[ProjectOut])
 def getProjectsByUserID(
     user_id: UUID,
+    listing: Listing,
+    status: ProjectStatus | None = None,
+    start_from: datetime | None = Query(None, alias="startFrom"),
+    start_to: datetime | None = Query(None, alias="startTo"),
+    search: str | None = Query(None, description="part of the project name"),
     db: Session = Depends(get_db),
     user: User = Depends(load_user_in_org),
     current_user: User = Depends(get_current_user),
@@ -102,7 +140,8 @@ def getProjectsByUserID(
         raise HTTPException(
             status_code=403, detail="cannot view another user's projects"
         )
-    return get_all_projects_by_user_id(user_id, db)
+    stmt = projects_for_user_query(user_id)
+    return _list_projects(db, stmt, listing, status, start_from, start_to, search)
 
 
 @router.get("/projects/{project_id}", response_model=ProjectOut)

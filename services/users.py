@@ -19,8 +19,8 @@ USER_FIELD_MAP = {
 }
 
 
-def get_all_users(db: Session, org_id: UUID):
-    return db.execute(select(User).where(User.userOrg == org_id)).scalars().all()
+def users_in_org_query(org_id: UUID):
+    return select(User).where(User.userOrg == org_id)
 
 
 def get_user_by_user_id(user_id, db: Session):

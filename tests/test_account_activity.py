@@ -232,7 +232,7 @@ def test_project_user_added_notifies_vendor_and_original_client(
     )
     assert resp.status_code == 200, resp.text
 
-    vendor_unread = client.get("/notifications/unread", headers=vendor_auth_headers).json()
+    vendor_unread = client.get("/notifications/unread", headers=vendor_auth_headers).json()["items"]
     assert any(
         n["type"] == "project_user_added" and test_client_login["fullName"] in n["message"]
         for n in vendor_unread
@@ -241,7 +241,7 @@ def test_project_user_added_notifies_vendor_and_original_client(
     original_client_token = _login(client, original_client["userEmail"])
     original_client_unread = client.get(
         "/notifications/unread", headers={"Authorization": f"Bearer {original_client_token}"}
-    ).json()
+    ).json()["items"]
     assert any(
         n["type"] == "project_user_added" and "your project" in n["message"]
         for n in original_client_unread
@@ -259,17 +259,17 @@ def test_project_user_added_skips_self_notification(
 
     client_token = _login(client, test_client_login["userEmail"])
     client_auth = {"Authorization": f"Bearer {client_token}"}
-    before = client.get("/notifications/unread", headers=client_auth).json()
+    before = client.get("/notifications/unread", headers=client_auth).json()["items"]
 
     resp = client.post(
         f"/projects/{project['projectId']}/users/{test_client_login['userId']}", headers=vendor_auth_headers
     )
     assert resp.status_code == 200, resp.text
 
-    after = client.get("/notifications/unread", headers=client_auth).json()
+    after = client.get("/notifications/unread", headers=client_auth).json()["items"]
     assert len(after) == len(before)
 
-    vendor_unread = client.get("/notifications/unread", headers=vendor_auth_headers).json()
+    vendor_unread = client.get("/notifications/unread", headers=vendor_auth_headers).json()["items"]
     assert any(n["type"] == "project_user_added" for n in vendor_unread)
 
 

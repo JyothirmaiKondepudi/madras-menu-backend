@@ -77,62 +77,39 @@ def get_billing_history_by_id(billing_history_id, db: Session):
     return db.get(BillingHistory, billing_history_id)
 
 
-def get_billing_history_by_invoice_id(invoice_id, db: Session):
+def billing_history_for_invoice_query(invoice_id):
+    return select(BillingHistory).where(BillingHistory.invoiceId == invoice_id)
+
+
+def billing_history_for_subproject_query(subproject_id):
     return (
-        db.execute(
-            select(BillingHistory)
-            .where(BillingHistory.invoiceId == invoice_id)
-            .order_by(BillingHistory.occurredAt.desc())
-        )
-        .scalars()
-        .all()
+        select(BillingHistory)
+        .join(Invoice, BillingHistory.invoiceId == Invoice.invoiceId)
+        .where(Invoice.subprojectId == subproject_id)
     )
 
 
-def get_billing_history_by_subproject_id(subproject_id, db: Session):
-    return (
-        db.execute(
-            select(BillingHistory)
-            .join(Invoice, BillingHistory.invoiceId == Invoice.invoiceId)
-            .where(Invoice.subprojectId == subproject_id)
-            .order_by(BillingHistory.occurredAt.desc())
-        )
-        .scalars()
-        .all()
-    )
-
-
-def get_all_billing_history(organization_id, db: Session):
+def billing_history_in_org_query(organization_id):
     """Every transaction in the caller's org. A payment's org is its
     invoice's project's org, so scope by joining through both."""
     return (
-        db.execute(
-            select(BillingHistory)
-            .join(Invoice, BillingHistory.invoiceId == Invoice.invoiceId)
-            .join(Project, Invoice.projectAssociatedTo == Project.projectId)
-            .where(Project.organizationId == organization_id)
-            .order_by(BillingHistory.occurredAt.desc())
-        )
-        .scalars()
-        .all()
+        select(BillingHistory)
+        .join(Invoice, BillingHistory.invoiceId == Invoice.invoiceId)
+        .join(Project, Invoice.projectAssociatedTo == Project.projectId)
+        .where(Project.organizationId == organization_id)
     )
 
 
-def get_billing_history_by_project_ids(project_ids, db: Session):
-    """For a non-vendor's GET /billing-history — every transaction billed
+def billing_history_in_projects_query(project_ids):
+    """For a non-vendor's GET /billing-history: every transaction billed
     against a subproject belonging to any project they're linked to, the
-    same scoping rule services/subproject.py's get_subprojects_by_project_ids
-    already uses."""
+    same scoping rule services/subproject.py's subprojects_in_projects_query
+    uses."""
     return (
-        db.execute(
-            select(BillingHistory)
-            .join(Invoice, BillingHistory.invoiceId == Invoice.invoiceId)
-            .join(Subproject, Invoice.subprojectId == Subproject.subprojectId)
-            .where(Subproject.projectAssociatedTo.in_(project_ids))
-            .order_by(BillingHistory.occurredAt.desc())
-        )
-        .scalars()
-        .all()
+        select(BillingHistory)
+        .join(Invoice, BillingHistory.invoiceId == Invoice.invoiceId)
+        .join(Subproject, Invoice.subprojectId == Subproject.subprojectId)
+        .where(Subproject.projectAssociatedTo.in_(project_ids))
     )
 
 

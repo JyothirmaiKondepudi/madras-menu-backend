@@ -3,8 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 
-def get_all_tax_categories(db: Session):
-    return db.execute(select(TaxCategory)).scalars().all()
+def tax_categories_query():
+    return select(TaxCategory)
+
 
 def get_tax_category_by_id(tax_category_id, db: Session):
     return db.get(TaxCategory, tax_category_id)

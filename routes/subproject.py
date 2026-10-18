@@ -1,14 +1,19 @@
 from sqlalchemy.orm import Session
 from services.subproject import (
+    subprojects_in_org_query,
+    subprojects_in_project_query,
+    subprojects_in_projects_query,
     add_new_subproject,
     delete_subproject_by_subproject_id,
-    get_all_subprojects,
-    get_all_subprojects_by_project_id,
     get_invoice_count_for_sub_project,
-    get_subprojects_by_project_ids,
     update_subproject_by_subproject_id,
 )
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from models.choices import EventType
+from services.listing import Listing, Page, paginate
 from models import Subproject, User, Project
 from schemas.subproject import SubprojectOut, SubprojectCreate, SubprojectUpdate
 from database import get_db
@@ -25,18 +30,49 @@ from uuid import UUID
 router = APIRouter()
 
 
-@router.get("/subprojects", response_model=list[SubprojectOut])
+SUBPROJECT_SORTS = {
+    "subprojectDate": Subproject.subprojectDate,
+    "subprojectName": Subproject.subprojectName,
+    "guestCount": Subproject.guestCount,
+    "createdAt": Subproject.createdAt,
+}
+
+
+def _list_subprojects(db, stmt, listing, date_from, date_to, event_type):
+    if date_from is not None:
+        stmt = stmt.where(Subproject.subprojectDate >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(Subproject.subprojectDate <= date_to)
+    if event_type is not None:
+        stmt = stmt.where(Subproject.subprojectEvent == event_type)
+    return paginate(
+        db, stmt, listing, SUBPROJECT_SORTS, "subprojectDate", Subproject.subprojectId
+    )
+
+
+@router.get("/subprojects", response_model=Page[SubprojectOut])
 def get_subprojects(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    listing: Listing,
+    date_from: datetime | None = Query(None, alias="dateFrom"),
+    date_to: datetime | None = Query(None, alias="dateTo"),
+    event_type: EventType | None = Query(None, alias="eventType"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if user_has_permission(current_user, "subproject:view_all", db):
-        return get_all_subprojects(current_user.userOrg, db)
-    return get_subprojects_by_project_ids(user_project_ids(current_user), db)
+        stmt = subprojects_in_org_query(current_user.userOrg)
+    else:
+        stmt = subprojects_in_projects_query(user_project_ids(current_user))
+    return _list_subprojects(db, stmt, listing, date_from, date_to, event_type)
 
 
-@router.get("/projects/{project_id}/subprojects", response_model=list[SubprojectOut])
+@router.get("/projects/{project_id}/subprojects", response_model=Page[SubprojectOut])
 def getSubprojectByProjectId(
     project_id: UUID,
+    listing: Listing,
+    date_from: datetime | None = Query(None, alias="dateFrom"),
+    date_to: datetime | None = Query(None, alias="dateTo"),
+    event_type: EventType | None = Query(None, alias="eventType"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     project: Project = Depends(load_project_in_org),
@@ -47,8 +83,8 @@ def getSubprojectByProjectId(
         raise HTTPException(
             status_code=403, detail="not authorized to view this project's subprojects"
         )
-    subprojects = get_all_subprojects_by_project_id(project_id, db)
-    return subprojects
+    stmt = subprojects_in_project_query(project_id)
+    return _list_subprojects(db, stmt, listing, date_from, date_to, event_type)
 
 
 @router.get("/subprojects/{subproject_id}", response_model=SubprojectOut)

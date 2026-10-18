@@ -4,11 +4,13 @@ from services.item_relationships import (
     add_new_item_relationship,
     delete_item_relationship_by_child_id,
     delete_node_from_hierarchy,
-    get_all_item_relationships,
+    item_relationships_query,
     get_item_relationship_by_child_id,
     update_item_relationship_by_child_id,
 )
 from fastapi import APIRouter, Depends, HTTPException
+from models import ItemRelationship
+from services.listing import Listing, Page, paginate
 from schemas.item_relationship import (
     ItemRelationshipOut,
     ItemRelationshipCreate,
@@ -31,11 +33,14 @@ _manage = Depends(require_permission("hierarchy:manage"))
 
 @router.get(
     "/item-relationships",
-    response_model=list[ItemRelationshipOut],
+    response_model=Page[ItemRelationshipOut],
     dependencies=[_manage],
 )
-def get_item_relationships(db: Session = Depends(get_db)):
-    return get_all_item_relationships(db)
+def get_item_relationships(listing: Listing, db: Session = Depends(get_db)):
+    # edges have no timestamp or name, so they page in id order
+    return paginate(
+        db, item_relationships_query(), listing, {"id": ItemRelationship.id}, "id", ItemRelationship.id
+    )
 
 
 @router.get(

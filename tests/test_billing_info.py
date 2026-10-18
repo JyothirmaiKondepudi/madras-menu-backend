@@ -79,7 +79,7 @@ def test_vendor_sees_all_billing_info(client, test_project, test_user, vendor_au
 
     resp = client.get("/billing-info", headers=vendor_auth_headers)
     assert resp.status_code == 200
-    assert any(i["subprojectId"] == subproject["subprojectId"] for i in resp.json())
+    assert any(i["subprojectId"] == subproject["subprojectId"] for i in resp.json()["items"])
 
 
 def test_client_only_sees_billing_info_for_linked_projects(
@@ -98,7 +98,7 @@ def test_client_only_sees_billing_info_for_linked_projects(
     token = _login(client, test_client_login["userEmail"])
     client_auth = {"Authorization": f"Bearer {token}"}
 
-    assert client.get("/billing-info", headers=client_auth).json() == []
+    assert client.get("/billing-info", headers=client_auth).json()["items"] == []
     resp = client.get(f"/subprojects/{subproject['subprojectId']}/billing-info", headers=client_auth)
     assert resp.status_code == 403
 
@@ -107,7 +107,7 @@ def test_client_only_sees_billing_info_for_linked_projects(
         headers=vendor_auth_headers,
     )
 
-    assert len(client.get("/billing-info", headers=client_auth).json()) == 1
+    assert len(client.get("/billing-info", headers=client_auth).json()["items"]) == 1
     resp = client.get(f"/subprojects/{subproject['subprojectId']}/billing-info", headers=client_auth)
     assert resp.status_code == 200
     assert resp.json()["subprojectId"] == subproject["subprojectId"]
@@ -200,7 +200,7 @@ def test_project_level_invoice_does_not_create_billing_info(client, test_project
     )
     assert resp.status_code == 200, resp.text
 
-    assert client.get("/billing-info", headers=vendor_auth_headers).json() == []
+    assert client.get("/billing-info", headers=vendor_auth_headers).json()["items"] == []
 
 
 def _billing_info(client, subproject_id, headers):
@@ -462,7 +462,7 @@ def test_voiding_payment_makes_invoice_overdue_again(client, test_project, test_
         client, test_project["projectId"], test_user["userId"], vendor_auth_headers, subproject["subprojectId"], PAST
     )
     _pay(client, invoice["invoiceId"], 100, vendor_auth_headers)
-    payment = client.get(f"/invoices/{invoice['invoiceId']}/billing-history", headers=vendor_auth_headers).json()[0]
+    payment = client.get(f"/invoices/{invoice['invoiceId']}/billing-history", headers=vendor_auth_headers).json()["items"][0]
 
     resp = client.post(
         f"/billing-history/{payment['id']}/void", json={"reason": "bounced"}, headers=vendor_auth_headers
