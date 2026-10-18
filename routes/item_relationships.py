@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from models import ItemRelationship
 from services.listing import Listing, Page, paginate
 from schemas.item_relationship import (
+    RelationshipType,
     ItemRelationshipOut,
     ItemRelationshipCreate,
     ItemRelationshipUpdate,
@@ -49,7 +50,7 @@ def get_item_relationships(listing: Listing, db: Session = Depends(get_db)):
     dependencies=[_manage],
 )
 def get_item_relationship(
-    child_id: UUID, relationship_type: str = "parent_of", db: Session = Depends(get_db)
+    child_id: UUID, relationship_type: RelationshipType = "parent_of", db: Session = Depends(get_db)
 ):
     edge = get_item_relationship_by_child_id(child_id, db, relationship_type)
     if edge is None:
@@ -85,7 +86,7 @@ def update_item_relationship(
     "/item-relationships/{child_id}", status_code=204, dependencies=[_manage]
 )
 def delete_item_relationship(
-    child_id: UUID, relationship_type: str = "parent_of", db: Session = Depends(get_db)
+    child_id: UUID, relationship_type: RelationshipType = "parent_of", db: Session = Depends(get_db)
 ):
     deleted = delete_item_relationship_by_child_id(child_id, db, relationship_type)
     if not deleted:
@@ -95,7 +96,7 @@ def delete_item_relationship(
 
 @router.delete("/item-relationships/nodes/{item_id}", dependencies=[_manage])
 def delete_hierarchy_node(
-    item_id: UUID, relationship_type: str = "parent_of", db: Session = Depends(get_db)
+    item_id: UUID, relationship_type: RelationshipType = "parent_of", db: Session = Depends(get_db)
 ):
     """Removes item_id from the hierarchy entirely (not just one edge) —
     reparents its children to its own parent. See hierarchy/mutations.py's
