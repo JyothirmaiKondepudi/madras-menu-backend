@@ -124,7 +124,7 @@ def test_get_invoices_by_project_id(
     ).json()
 
     resp = client.get(
-        f"/invoices/projects/{test_project['projectId']}", headers=vendor_auth_headers
+        f"/projects/{test_project['projectId']}/invoices", headers=vendor_auth_headers
     )
     assert resp.status_code == 200
     assert any(i["invoiceId"] == created["invoiceId"] for i in resp.json())
@@ -143,7 +143,7 @@ def test_get_invoices_by_project_id_forbidden_for_unlinked_client(
     token = login_resp.json()["access_token"]
 
     resp = client.get(
-        f"/invoices/projects/{test_project['projectId']}",
+        f"/projects/{test_project['projectId']}/invoices",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
@@ -208,11 +208,11 @@ def test_declined_invoice_is_final(
         json=_invoice_body(test_project["projectId"], test_user["userId"]),
         headers=vendor_auth_headers,
     ).json()
-    client.patch(
+    client.post(
         f"/invoices/{created['invoiceId']}/reject", headers=vendor_auth_headers
     )
 
-    resp = client.patch(
+    resp = client.post(
         f"/invoices/{created['invoiceId']}/accept", headers=vendor_auth_headers
     )
     assert resp.status_code == 409, resp.text
@@ -288,7 +288,7 @@ def test_deleted_invoice_is_hidden_but_kept(
     listed = client.get("/invoices", headers=vendor_auth_headers).json()
     assert invoice_id not in [i["invoiceId"] for i in listed]
     by_project = client.get(
-        f"/invoices/projects/{test_project['projectId']}", headers=vendor_auth_headers
+        f"/projects/{test_project['projectId']}/invoices", headers=vendor_auth_headers
     ).json()
     assert invoice_id not in [i["invoiceId"] for i in by_project]
     assert (
@@ -319,7 +319,7 @@ def test_accepted_invoice_cannot_be_deleted(
         json=_invoice_body(test_project["projectId"], test_user["userId"]),
         headers=vendor_auth_headers,
     ).json()
-    client.patch(
+    client.post(
         f"/invoices/{created['invoiceId']}/accept", headers=vendor_auth_headers
     )
     resp = client.delete(
@@ -342,7 +342,7 @@ def test_invoice_with_payment_cannot_be_deleted(
         json=_invoice_body(test_project["projectId"], test_user["userId"]),
         headers=vendor_auth_headers,
     ).json()
-    client.patch(
+    client.post(
         f"/invoices/{created['invoiceId']}/accept", headers=vendor_auth_headers
     )
     paid = client.post(
@@ -433,7 +433,7 @@ def test_invoice_accept_is_saved_even_if_pdf_fails(
     ).json()
 
     _break_pdf_generation(monkeypatch)
-    resp = client.patch(
+    resp = client.post(
         f"/invoices/{created['invoiceId']}/accept", headers=vendor_auth_headers
     )
     assert resp.status_code == 200, resp.text
@@ -564,7 +564,7 @@ def test_client_accepting_invoice_notifies_both_client_and_vendor(
     ).json()
 
     client_token = _login(client, test_client_login["userEmail"])
-    resp = client.patch(
+    resp = client.post(
         f"/invoices/{invoice['invoiceId']}/accept",
         headers={"Authorization": f"Bearer {client_token}"},
     )
@@ -600,7 +600,7 @@ def test_reject_invoice_sets_declined_status(
     ).json()
 
     client_token = _login(client, test_client_login["userEmail"])
-    resp = client.patch(
+    resp = client.post(
         f"/invoices/{invoice['invoiceId']}/reject",
         headers={"Authorization": f"Bearer {client_token}"},
     )
@@ -618,7 +618,7 @@ def test_accept_invoice_requires_being_the_billed_client_or_vendor(
     ).json()
 
     other_token = _login(client, test_client_login["userEmail"])
-    resp = client.patch(
+    resp = client.post(
         f"/invoices/{invoice['invoiceId']}/accept",
         headers={"Authorization": f"Bearer {other_token}"},
     )
@@ -634,7 +634,7 @@ def test_accept_invoice_requires_auth(
         headers=vendor_auth_headers,
     ).json()
 
-    assert client.patch(f"/invoices/{invoice['invoiceId']}/accept").status_code == 401
+    assert client.post(f"/invoices/{invoice['invoiceId']}/accept").status_code == 401
 
 
 def test_invoice_amount_is_deposit_percentage_of_total(
@@ -986,13 +986,13 @@ def test_rescheduling_keeps_due_dates_of_accepted_and_paid_invoices(
     accepted = _invoice_on(
         client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"]
     )
-    client.patch(
+    client.post(
         f"/invoices/{accepted['invoiceId']}/accept", headers=vendor_auth_headers
     )
     paid = _invoice_on(
         client, test_project, test_user, vendor_auth_headers, subproject["subprojectId"]
     )
-    client.patch(f"/invoices/{paid['invoiceId']}/accept", headers=vendor_auth_headers)
+    client.post(f"/invoices/{paid['invoiceId']}/accept", headers=vendor_auth_headers)
     client.post(
         "/billing-history/payments",
         json={"invoiceId": paid["invoiceId"], "amount": 40},
@@ -1295,7 +1295,7 @@ def test_repeating_an_answer_succeeds_without_notifying_again(
     }
 
     for _ in range(2):  # e.g. a double-click, or a retried request
-        resp = client.patch(
+        resp = client.post(
             f"/invoices/{invoice['invoiceId']}/{action}", headers=client_headers
         )
         assert resp.status_code == 200, resp.text

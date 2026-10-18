@@ -86,12 +86,12 @@ def test_get_another_organization_forbidden(
 
 def test_list_all_organizations_not_granted_to_vendor(client, vendor_auth_headers):
     # org:view_all is deliberately withheld from vendors (see auth/permissions.py)
-    assert client.get("/organizations/all", headers=vendor_auth_headers).status_code == 403
+    assert client.get("/organizations", headers=vendor_auth_headers).status_code == 403
 
 
 def test_platform_admin_lists_all_organizations(client, platform_admin_headers):
     created = _create_org(client, platform_admin_headers, orgName="Listed Org")
-    resp = client.get("/organizations/all", headers=platform_admin_headers)
+    resp = client.get("/organizations", headers=platform_admin_headers)
     assert resp.status_code == 200, resp.text
     assert created["orgId"] in [o["orgId"] for o in resp.json()]
 

@@ -26,7 +26,7 @@ def read_current_user(current_user: User = Depends(get_current_user)):
     return current_user
 
 
-@router.patch("/auth/change-password", status_code=204)
+@router.post("/auth/change-password", status_code=204)
 def change_password_route(
     body: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),

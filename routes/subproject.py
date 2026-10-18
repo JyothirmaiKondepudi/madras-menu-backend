@@ -34,7 +34,7 @@ def get_subprojects(
     return get_subprojects_by_project_ids(user_project_ids(current_user), db)
 
 
-@router.get("/subprojects/projects/{project_id}", response_model=list[SubprojectOut])
+@router.get("/projects/{project_id}/subprojects", response_model=list[SubprojectOut])
 def getSubprojectByProjectId(
     project_id: UUID,
     db: Session = Depends(get_db),

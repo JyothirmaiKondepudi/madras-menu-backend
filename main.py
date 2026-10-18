@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import FastAPI, Request, Depends
+from fastapi import APIRouter, FastAPI, Request, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -42,19 +42,29 @@ _UNLOGGED_PATHS = {"/", "/db/health"}
 logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI()
-app.include_router(org_router)
-app.include_router(users_router)
-app.include_router(projects_router)
-app.include_router(invoice_router)
-app.include_router(subproject_router)
-app.include_router(menu_items_router)
-app.include_router(tax_categories_router)
-app.include_router(item_relationships_router)
-app.include_router(embeddings_router)
-app.include_router(auth_router)
-app.include_router(notifications_router)
-app.include_router(billing_history_router)
-app.include_router(billing_info_router)
+
+# Every API route lives under /api/v1 (BE-27); a breaking change would go
+# under /api/v2 alongside it. The health checks below stay at the root,
+# where Docker and Cloud Run probe them.
+API_PREFIX = "/api/v1"
+api = APIRouter(prefix=API_PREFIX)
+for router in (
+    org_router,
+    users_router,
+    projects_router,
+    invoice_router,
+    subproject_router,
+    menu_items_router,
+    tax_categories_router,
+    item_relationships_router,
+    embeddings_router,
+    auth_router,
+    notifications_router,
+    billing_history_router,
+    billing_info_router,
+):
+    api.include_router(router)
+app.include_router(api)
 
 # --- API activity logging ---------------------------------------------------
 # One api_logs row per request, including 401/422/404s and unhandled 500s.
@@ -66,6 +76,16 @@ def _client_ip(request: Request) -> str | None:
         return str(ipaddress.ip_address(host)) if host else None
     except ValueError:  # e.g. "testclient"
         return None
+
+
+def _route_template(request: Request) -> str | None:
+    """The matched route's path template, e.g. /api/v1/users/{user_id}.
+    The route only knows its path inside its router, so add the prefix back:
+    otherwise /api/v1 and a future /api/v2 would log the same template."""
+    route_path = getattr(request.scope.get("route"), "path", None)
+    if route_path is not None and request.url.path.startswith(API_PREFIX + "/"):
+        return API_PREFIX + route_path
+    return route_path
 
 
 @app.middleware("http")
@@ -110,7 +130,7 @@ async def log_api_activity(request: Request, call_next):
             queryParams=dict(request.query_params) or None,
             userAgent=request.headers.get("user-agent"),
             path=request.url.path,
-            route=getattr(request.scope.get("route"), "path", None),
+            route=_route_template(request),
             statusCode=status_code,
             duration_ms=int((time.perf_counter() - start) * 1000),
             userId=getattr(request.state, "user_id", None),

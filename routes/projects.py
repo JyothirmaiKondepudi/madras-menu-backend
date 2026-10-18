@@ -88,7 +88,7 @@ def set_project_final_invoice(
     return updated_project
 
 
-@router.get("/projects/users/{user_id}", response_model=list[ProjectOut])
+@router.get("/users/{user_id}/projects", response_model=list[ProjectOut])
 def getProjectsByUserID(
     user_id: UUID,
     db: Session = Depends(get_db),

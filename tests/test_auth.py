@@ -87,7 +87,7 @@ def test_change_password_success(client, test_client_login):
     })
     token = login_resp.json()["access_token"]
 
-    resp = client.patch(
+    resp = client.post(
         "/auth/change-password",
         json={"currentPassword": "correct-horse-battery-staple", "newPassword": "a-new-strong-password"},
         headers={"Authorization": f"Bearer {token}"},
@@ -112,7 +112,7 @@ def test_change_password_wrong_current_password_401(client, test_client_login):
     })
     token = login_resp.json()["access_token"]
 
-    resp = client.patch(
+    resp = client.post(
         "/auth/change-password",
         json={"currentPassword": "totally-wrong", "newPassword": "a-new-strong-password"},
         headers={"Authorization": f"Bearer {token}"},
@@ -127,7 +127,7 @@ def test_change_password_wrong_current_password_401(client, test_client_login):
 
 
 def test_change_password_requires_auth(client):
-    resp = client.patch(
+    resp = client.post(
         "/auth/change-password",
         json={"currentPassword": "whatever", "newPassword": "a-new-strong-password"},
     )

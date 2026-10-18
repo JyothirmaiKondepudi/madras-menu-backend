@@ -22,7 +22,7 @@ def list_unread_notifications(db: Session = Depends(get_db), current_user: User 
     return get_unread_notifications(db, current_user.userId)
 
 
-@router.patch("/notifications/{notification_id}/seen", response_model=NotificationOut)
+@router.post("/notifications/{notification_id}/seen", response_model=NotificationOut)
 def mark_notification_seen(
     notification_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
@@ -36,7 +36,7 @@ def mark_notification_seen(
     return notification
 
 
-@router.patch("/notifications/{notification_id}/read", response_model=NotificationOut)
+@router.post("/notifications/{notification_id}/read", response_model=NotificationOut)
 def mark_notification_read(
     notification_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):

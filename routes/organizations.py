@@ -30,7 +30,7 @@ router = APIRouter()
 
 
 @router.get(
-    "/organizations/all",
+    "/organizations",
     response_model=list[OrganizationOut],
     dependencies=[Depends(require_permission("org:view_all"))],
 )

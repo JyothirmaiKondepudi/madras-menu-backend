@@ -42,7 +42,7 @@ def _create_invoice(client, project_id, user_id, headers, subproject_id=None, am
     )
     assert resp.status_code == 200, resp.text
     if accept:
-        resp = client.patch(f"/invoices/{resp.json()['invoiceId']}/accept", headers=headers)
+        resp = client.post(f"/invoices/{resp.json()['invoiceId']}/accept", headers=headers)
         assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -107,7 +107,7 @@ def test_record_payment_creates_billing_history_row(client, test_project, test_u
     assert body["billingMetadata"] == {"method": "check"}
     assert body["failureReason"] is None
 
-    history = client.get(f"/billing-history/invoices/{invoice['invoiceId']}", headers=vendor_auth_headers).json()
+    history = client.get(f"/invoices/{invoice['invoiceId']}/billing-history", headers=vendor_auth_headers).json()
     assert len(history) == 1
     assert history[0]["id"] == body["id"]
 
@@ -141,7 +141,7 @@ def test_record_partial_then_full_payment_updates_billing_info(
         headers=vendor_auth_headers,
     )
     info = client.get(
-        f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
+        f"/subprojects/{subproject['subprojectId']}/billing-info", headers=vendor_auth_headers
     ).json()
     assert info["totalInvoiced"] == 100.00
     assert info["totalPaid"] == 60.00
@@ -154,7 +154,7 @@ def test_record_partial_then_full_payment_updates_billing_info(
         headers=vendor_auth_headers,
     )
     info = client.get(
-        f"/billing-info/subprojects/{subproject['subprojectId']}", headers=vendor_auth_headers
+        f"/subprojects/{subproject['subprojectId']}/billing-info", headers=vendor_auth_headers
     ).json()
     assert info["totalPaid"] == 100.00
     assert info["balanceDue"] == 0.00
@@ -163,7 +163,7 @@ def test_record_partial_then_full_payment_updates_billing_info(
 
 def test_get_billing_history_for_nonexistent_subproject_404(client, vendor_auth_headers):
     resp = client.get(
-        "/billing-history/subprojects/00000000-0000-0000-0000-000000000000", headers=vendor_auth_headers
+        "/subprojects/00000000-0000-0000-0000-000000000000/billing-history", headers=vendor_auth_headers
     )
     assert resp.status_code == 404
 
@@ -180,7 +180,7 @@ def test_get_billing_history_for_invoice_forbidden_for_unrelated_client(
 
     token = _login(client, test_client_login["userEmail"])
     resp = client.get(
-        f"/billing-history/invoices/{invoice['invoiceId']}", headers={"Authorization": f"Bearer {token}"}
+        f"/invoices/{invoice['invoiceId']}/billing-history", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 403
 
@@ -202,7 +202,7 @@ def test_client_only_sees_billing_history_for_linked_projects(
     client_auth = {"Authorization": f"Bearer {token}"}
 
     assert client.get("/billing-history", headers=client_auth).json() == []
-    resp = client.get(f"/billing-history/subprojects/{subproject['subprojectId']}", headers=client_auth)
+    resp = client.get(f"/subprojects/{subproject['subprojectId']}/billing-history", headers=client_auth)
     assert resp.status_code == 403
 
     client.post(
@@ -211,7 +211,7 @@ def test_client_only_sees_billing_history_for_linked_projects(
     )
 
     assert len(client.get("/billing-history", headers=client_auth).json()) == 1
-    resp = client.get(f"/billing-history/subprojects/{subproject['subprojectId']}", headers=client_auth)
+    resp = client.get(f"/subprojects/{subproject['subprojectId']}/billing-history", headers=client_auth)
     assert resp.status_code == 200
     assert len(resp.json()) == 1
 
@@ -243,7 +243,7 @@ def test_voided_payment_stays_in_history_but_leaves_the_totals(client, test_proj
     sub = _create_subproject(client, test_project["projectId"], h)
     invoice = _create_invoice(client, test_project["projectId"], test_user["userId"], h, sub["subprojectId"], 100.0)
     payment = _pay(client, invoice["invoiceId"], h, amount=40)
-    info = client.get(f"/billing-info/subprojects/{sub['subprojectId']}", headers=h).json()
+    info = client.get(f"/subprojects/{sub['subprojectId']}/billing-info", headers=h).json()
     assert info["totalPaid"] == 40.00
 
     resp = _void(client, payment["id"], h, reason="Typo, actual amount was $4")
@@ -251,10 +251,10 @@ def test_voided_payment_stays_in_history_but_leaves_the_totals(client, test_proj
     assert resp.json()["voidedAt"] is not None
     assert resp.json()["voidedReason"] == "Typo, actual amount was $4"
 
-    info = client.get(f"/billing-info/subprojects/{sub['subprojectId']}", headers=h).json()
+    info = client.get(f"/subprojects/{sub['subprojectId']}/billing-info", headers=h).json()
     assert info["totalPaid"] == 0.00
     assert info["balanceDue"] == 100.00
-    history = client.get(f"/billing-history/invoices/{invoice['invoiceId']}", headers=h).json()
+    history = client.get(f"/invoices/{invoice['invoiceId']}/billing-history", headers=h).json()
     assert [row["id"] for row in history] == [payment["id"]]
 
 
@@ -325,7 +325,8 @@ def test_payment_rejected_until_invoice_is_accepted(client, test_project, test_u
         client, test_project["projectId"], test_user["userId"], vendor_auth_headers, accept=False
     )
     if action:
-        client.patch(f"/invoices/{invoice['invoiceId']}/{action}", headers=vendor_auth_headers)
+        resp = client.post(f"/invoices/{invoice['invoiceId']}/{action}", headers=vendor_auth_headers)
+        assert resp.status_code == 200, resp.text
 
     resp = _try_pay(client, invoice["invoiceId"], vendor_auth_headers, 10)
     assert resp.status_code == 409, resp.text

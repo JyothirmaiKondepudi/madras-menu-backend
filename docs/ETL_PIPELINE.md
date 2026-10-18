@@ -2,6 +2,9 @@
 
 Moved out of the main `README.md` on purpose — this is the detailed, elaborate reference for how dishes actually get classified into the tree; the main README keeps only a short pointer here. Two versions are documented below: the **manual pipeline** (how every edge currently in the database was actually produced, up through 682 items) and the **embedding-driven pipeline** (the design being built now, to automate the rest). Nothing in the manual version becomes wrong once the automated version exists — they're the same six conceptual stages, differing in how "Classify" actually happens.
 
+
+> Paths below are written without the `/api/v1` prefix that every API route now has (see README, API paths).
+
 ## Version 1 — manual (how the tree got to 682 items / 88 edges)
 
 ```mermaid
