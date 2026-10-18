@@ -126,7 +126,7 @@ def test_payment_voided_writes_activity_with_reason(
         "projectAssociatedTo": test_project["projectId"],
     }, headers=vendor_auth_headers).json()
     # payments can only be recorded once the invoice is accepted
-    client.patch(f"/invoices/{invoice['invoiceId']}/accept", headers=vendor_auth_headers)
+    client.post(f"/invoices/{invoice['invoiceId']}/accept", headers=vendor_auth_headers)
     payment = client.post(
         "/billing-history/payments",
         json={"invoiceId": invoice["invoiceId"], "amount": 50},
@@ -160,7 +160,7 @@ def test_invoice_accepted_writes_activity_with_client_as_actor(
     }, headers=vendor_auth_headers).json()
 
     client_token = _login(client, test_client_login["userEmail"])
-    resp = client.patch(
+    resp = client.post(
         f"/invoices/{invoice['invoiceId']}/accept", headers={"Authorization": f"Bearer {client_token}"}
     )
     assert resp.status_code == 200, resp.text
@@ -184,7 +184,7 @@ def test_invoice_declined_writes_no_activity(
     }, headers=vendor_auth_headers).json()
 
     client_token = _login(client, test_client_login["userEmail"])
-    resp = client.patch(
+    resp = client.post(
         f"/invoices/{invoice['invoiceId']}/reject", headers={"Authorization": f"Bearer {client_token}"}
     )
     assert resp.status_code == 200, resp.text

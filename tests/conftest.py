@@ -85,7 +85,9 @@ def client(engine):
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    yield TestClient(app)
+    # every API route is under /api/v1, so tests can write client.get("/users");
+    # the health checks at the root need a full URL (see test_health.py)
+    yield TestClient(app, base_url="http://testserver/api/v1")
     app.dependency_overrides.clear()
 
 

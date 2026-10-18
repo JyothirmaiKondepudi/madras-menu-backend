@@ -92,7 +92,7 @@ def test_get_project_forbidden_for_unlinked_client(
 
 def test_get_projects_by_user_id(client, test_user, test_project, vendor_auth_headers):
     resp = client.get(
-        f"/projects/users/{test_user['userId']}", headers=vendor_auth_headers
+        f"/users/{test_user['userId']}/projects", headers=vendor_auth_headers
     )
     assert resp.status_code == 200
     assert any(p["projectId"] == test_project["projectId"] for p in resp.json())
@@ -110,7 +110,7 @@ def test_get_projects_by_user_id_forbidden_for_another_user(
     )
     token = login_resp.json()["access_token"]
     resp = client.get(
-        f"/projects/users/{test_user['userId']}",
+        f"/users/{test_user['userId']}/projects",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
@@ -374,7 +374,7 @@ def test_linked_client_sees_project_on_every_route(
 
     listed = client.get("/projects", headers=headers).json()
     by_user = client.get(
-        f"/projects/users/{test_client_login['userId']}", headers=headers
+        f"/users/{test_client_login['userId']}/projects", headers=headers
     ).json()
     assert [p["projectId"] for p in listed] == [test_project["projectId"]]
     assert [p["projectId"] for p in by_user] == [test_project["projectId"]]

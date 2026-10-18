@@ -74,7 +74,7 @@ def test_mark_notification_read_sets_both_seen_and_read(client, test_user, test_
     assert notification["seenAt"] is None
     assert notification["readAt"] is None
 
-    marked = client.patch(f"/notifications/{notification['id']}/read", headers=client_auth)
+    marked = client.post(f"/notifications/{notification['id']}/read", headers=client_auth)
     assert marked.status_code == 200, marked.text
     assert marked.json()["seenAt"] is not None
     assert marked.json()["readAt"] is not None
@@ -100,7 +100,7 @@ def test_mark_notification_seen_does_not_mark_it_read(client, test_user, test_pr
     unread = client.get("/notifications/unread", headers=client_auth).json()
     notification = next(n for n in unread if n["relatedInvoiceId"] == invoice_id)
 
-    marked = client.patch(f"/notifications/{notification['id']}/seen", headers=client_auth)
+    marked = client.post(f"/notifications/{notification['id']}/seen", headers=client_auth)
     assert marked.status_code == 200, marked.text
     assert marked.json()["seenAt"] is not None
     assert marked.json()["readAt"] is None
@@ -140,7 +140,7 @@ def test_cannot_mark_another_users_notification(client, test_vendor_login, test_
     }, headers=vendor_auth_headers)
     other_token = _login(client, other_resp.json()["userEmail"])
 
-    resp = client.patch(
+    resp = client.post(
         f"/notifications/{notification['id']}/read", headers={"Authorization": f"Bearer {other_token}"}
     )
     assert resp.status_code == 403
@@ -148,7 +148,7 @@ def test_cannot_mark_another_users_notification(client, test_vendor_login, test_
 
 def test_mark_nonexistent_notification_404(client, test_client_login):
     token = _login(client, test_client_login["userEmail"])
-    resp = client.patch(
+    resp = client.post(
         "/notifications/00000000-0000-0000-0000-000000000000/read",
         headers={"Authorization": f"Bearer {token}"},
     )

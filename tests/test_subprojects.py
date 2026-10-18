@@ -73,7 +73,7 @@ def test_get_subprojects_by_project_id(client, test_project, vendor_auth_headers
     ).json()
 
     resp = client.get(
-        f"/subprojects/projects/{test_project['projectId']}",
+        f"/projects/{test_project['projectId']}/subprojects",
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200

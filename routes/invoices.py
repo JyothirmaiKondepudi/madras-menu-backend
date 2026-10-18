@@ -42,7 +42,7 @@ def get_invoices(
     return get_invoices_by_user_id(current_user.userId, db)
 
 
-@router.get("/invoices/projects/{project_id}", response_model=list[InvoiceOut])
+@router.get("/projects/{project_id}/invoices", response_model=list[InvoiceOut])
 def getInvoicesByProjectId(
     project_id: UUID,
     db: Session = Depends(get_db),
@@ -225,7 +225,7 @@ def delete_invoice(
     db.commit()
 
 
-@router.patch("/invoices/{invoice_id}/accept", response_model=InvoiceOut)
+@router.post("/invoices/{invoice_id}/accept", response_model=InvoiceOut)
 def accept_invoice(
     invoice_id: UUID,
     db: Session = Depends(get_db),
@@ -246,7 +246,7 @@ def accept_invoice(
     return _respond(invoice, "Accepted", db, current_user)
 
 
-@router.patch("/invoices/{invoice_id}/reject", response_model=InvoiceOut)
+@router.post("/invoices/{invoice_id}/reject", response_model=InvoiceOut)
 def reject_invoice(
     invoice_id: UUID,
     db: Session = Depends(get_db),

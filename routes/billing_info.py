@@ -19,7 +19,7 @@ def get_billing_info(db: Session = Depends(get_db), current_user: User = Depends
         return get_all_billing_info(current_user.userOrg, db)
     return get_billing_info_by_project_ids(user_project_ids(current_user), db)
 
-@router.get("/billing-info/subprojects/{subproject_id}", response_model=BillingInfoOut)
+@router.get("/subprojects/{subproject_id}/billing-info", response_model=BillingInfoOut)
 def get_billing_info_for_subproject(
     subproject_id: UUID,
     db: Session = Depends(get_db),

@@ -100,7 +100,7 @@ def get_billing_history(
 
 
 @router.get(
-    "/billing-history/subprojects/{subproject_id}",
+    "/subprojects/{subproject_id}/billing-history",
     response_model=list[BillingHistoryOut],
 )
 def get_billing_history_for_subproject(
@@ -120,7 +120,7 @@ def get_billing_history_for_subproject(
 
 
 @router.get(
-    "/billing-history/invoices/{invoice_id}", response_model=list[BillingHistoryOut]
+    "/invoices/{invoice_id}/billing-history", response_model=list[BillingHistoryOut]
 )
 def get_billing_history_for_invoice(
     invoice_id: UUID,

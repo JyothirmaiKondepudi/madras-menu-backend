@@ -1,10 +1,13 @@
 from sqlalchemy import text
 
 
+API = "/api/v1"  # the logged path is the full one the request used
+
+
 def _logs(engine, path):
     with engine.connect() as conn:
         return conn.execute(
-            text("SELECT * FROM api_logs WHERE path = :path ORDER BY occurred_at"), {"path": path}
+            text("SELECT * FROM api_logs WHERE path = :path ORDER BY occurred_at"), {"path": API + path}
         ).mappings().all()
 
 
@@ -14,7 +17,7 @@ def test_authenticated_request_is_logged(client, engine, vendor_auth_headers, te
 
     [log] = _logs(engine, "/users")
     assert log["method"] == "GET"
-    assert log["route"] == "/users"
+    assert log["route"] == API + "/users"
     assert log["status_code"] == 200
     assert str(log["user_id"]) == test_vendor_login["userId"]
     assert log["query_params"] == {"limit": "5"}

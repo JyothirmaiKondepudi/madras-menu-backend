@@ -150,16 +150,16 @@ def org_b(client, vendor_b):
         ("get", "/invoices/{invoice}", None),
         ("patch", "/invoices/{invoice}", {"invoiceStatus": "Paid"}),
         ("delete", "/invoices/{invoice}", None),
-        ("get", "/invoices/projects/{project}", None),
-        ("patch", "/invoices/{invoice}/accept", None),
-        ("patch", "/invoices/{invoice}/reject", None),
+        ("get", "/projects/{project}/invoices", None),
+        ("post", "/invoices/{invoice}/accept", None),
+        ("post", "/invoices/{invoice}/reject", None),
         ("get", "/invoices/{invoice}/pdf", None),
-        ("get", "/billing-history/invoices/{invoice}", None),
-        ("get", "/billing-history/subprojects/{subproject}", None),
-        ("get", "/billing-info/subprojects/{subproject}", None),
+        ("get", "/invoices/{invoice}/billing-history", None),
+        ("get", "/subprojects/{subproject}/billing-history", None),
+        ("get", "/subprojects/{subproject}/billing-info", None),
         ("get", "/users/{user}", None),
-        ("get", "/projects/users/{user}", None),
-        ("get", "/subprojects/projects/{project}", None),
+        ("get", "/users/{user}/projects", None),
+        ("get", "/projects/{project}/subprojects", None),
         ("patch", "/users/{user}", {"fullName": "Taken over"}),
         ("delete", "/users/{user}", None),
     ],
@@ -175,7 +175,7 @@ def test_other_org_vendor_gets_404(client, org_a, vendor_b, method, path, body):
 
 def test_org_b_cannot_access__org_a_invoice(client, vendor_b, org_a):
     response = client.get(
-        f"/invoices/projects/{org_a['project']}", headers=vendor_b["headers"]
+        f"/projects/{org_a['project']}/invoices", headers=vendor_b["headers"]
     )
     assert response.status_code == 404
 
@@ -245,7 +245,7 @@ def test_other_org_cannot_record_payment_on_invoice(client, org_a, vendor_b):
 
 def test_vendor_b_cannot_Access_org_a_subproject(client, org_a, vendor_b):
     response = client.get(
-        f"/subprojects/projects/{org_a['project']}",
+        f"/projects/{org_a['project']}/subprojects",
         headers=vendor_b["headers"],
     )
     assert response.status_code == 404
@@ -364,7 +364,7 @@ def _org_b_payment(client, vendor_b):
         ),
         headers=b,
     ).json()
-    client.patch(f"/invoices/{invoice['invoiceId']}/accept", headers=b)
+    client.post(f"/invoices/{invoice['invoiceId']}/accept", headers=b)
     payment = client.post(
         "/billing-history/payments",
         json={"invoiceId": invoice["invoiceId"], "amount": 22.22},
@@ -385,7 +385,7 @@ def test_user_list_only_shows_own_org(client, org_a, vendor_b, vendor_auth_heade
 def test_billing_history_list_only_shows_own_org(
     client, org_a, vendor_b, vendor_auth_headers
 ):
-    client.patch(f"/invoices/{org_a['invoice']}/accept", headers=vendor_auth_headers)
+    client.post(f"/invoices/{org_a['invoice']}/accept", headers=vendor_auth_headers)
     own = client.post(
         "/billing-history/payments",
         json={"invoiceId": org_a["invoice"], "amount": 11.11},
@@ -423,7 +423,7 @@ def test_list_only_shows_own_org(
 def test_billing_info_list_only_shows_own_org(
     client, org_a, vendor_b, vendor_auth_headers
 ):
-    client.patch(f"/invoices/{org_a['invoice']}/accept", headers=vendor_auth_headers)
+    client.post(f"/invoices/{org_a['invoice']}/accept", headers=vendor_auth_headers)
     client.post(
         "/billing-history/payments",
         json={"invoiceId": org_a["invoice"], "amount": 11.11},
