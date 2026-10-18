@@ -57,8 +57,8 @@ def update_project_by_project_id(project_id, updates: ProjectUpdate, db: Session
     # apply a timezone change first, so dates in the same request are read in it
     if "projectTimezone" in changes:
         project.projectTimezone = changes.pop("projectTimezone")
-    for field in ("projectStartDate", "projectEndDate"):
-        if field in changes:
+    for field in ("projectStartDate", "projectEndDate", "nextFollowUpAt"):
+        if changes.get(field) is not None:
             changes[field] = to_instant(changes[field], effective_timezone(project))
     for field, value in changes.items():
         setattr(project, field, value)

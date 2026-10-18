@@ -55,11 +55,13 @@ def paginate(
     sorts: dict,
     default_sort: str,
     tiebreak,
+    entities: bool = True,
 ) -> dict:
     """One page of stmt's rows. sorts maps the field names callers may sort
     by to columns; tiebreak (the primary key) keeps the order stable when
     the sort column has equal values, so rows don't repeat or go missing
-    between pages."""
+    between pages. entities=False is for queries that select plain columns
+    (e.g. a UNION) rather than model objects: rows come back as dicts."""
     key = params.sort or default_sort
     name = key.removeprefix("-")
     if name not in sorts:
@@ -72,14 +74,13 @@ def paginate(
 
     stmt = stmt.order_by(None)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = (
-        db.execute(
-            stmt.order_by(order.nulls_last(), tiebreak)
-            .limit(params.limit)
-            .offset(params.offset)
-        )
-        .scalars()
-        .unique()
-        .all()
+    result = db.execute(
+        stmt.order_by(order.nulls_last(), tiebreak)
+        .limit(params.limit)
+        .offset(params.offset)
     )
+    if entities:
+        rows = result.scalars().unique().all()
+    else:
+        rows = [dict(row) for row in result.mappings().all()]
     return {"items": rows, "total": total, "limit": params.limit, "offset": params.offset}

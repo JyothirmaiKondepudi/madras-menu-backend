@@ -15,7 +15,9 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import Project, User, Invoice
-from schemas.project import ProjectOut, ProjectCreate, ProjectUpdate
+from schemas.project import FollowUpCreate, ProjectOut, ProjectCreate, ProjectUpdate
+from schemas.timeline import TimelineEntryOut
+from services.timeline import describe_payment, project_timeline_query, record_follow_up
 from database import get_db
 from auth.dependencies import (
     get_current_user,
@@ -233,3 +235,55 @@ def delete_project(
     if deleted_project is None:
         raise HTTPException(status_code=404, detail="project not found")
     db.commit()
+
+
+# --- activity timeline and follow-ups (BE-14) ---------------------------------
+# Vendor-only for now: the timeline includes internal entries (deleted
+# invoices, voided payments and their reasons). What clients see is BE-12's
+# decision.
+
+
+@router.get(
+    "/projects/{project_id}/activity",
+    response_model=Page[TimelineEntryOut],
+    dependencies=[Depends(require_permission("project:view_all"))],
+)
+def get_project_activity(
+    project_id: UUID,
+    listing: Listing,
+    db: Session = Depends(get_db),
+    project: Project = Depends(load_project_in_org),
+):
+    timeline = project_timeline_query(project_id)
+    columns = timeline.selected_columns
+    page = paginate(
+        db,
+        timeline,
+        listing,
+        {"occurredAt": columns.occurredAt},
+        "-occurredAt",
+        columns.id,
+        entities=False,
+    )
+    page["items"] = [describe_payment(entry) for entry in page["items"]]
+    return page
+
+
+@router.post(
+    "/projects/{project_id}/follow-ups",
+    response_model=ProjectOut,
+    dependencies=[Depends(require_permission("project:update"))],
+)
+def add_follow_up(
+    project_id: UUID,
+    body: FollowUpCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    project: Project = Depends(load_project_in_org),
+):
+    updated_project = record_follow_up(
+        project, body.note, body.nextFollowUpAt, db, actor_id=current_user.userId
+    )
+    db.commit()
+    return updated_project
+

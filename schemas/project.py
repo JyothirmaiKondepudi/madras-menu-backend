@@ -22,6 +22,8 @@ class ProjectOut(BaseModel):
     # Read from the Project.users relationship (user_projects)
     clients: list[UserOut] = Field(default=[], validation_alias="users")
     projectTimezone: str | None = None
+    lastFollowedUpAt: datetime | None = None
+    nextFollowUpAt: datetime | None = None
     effectiveTimezone: str
     # projectStartDate / projectEndDate shown in the venue's timezone
     localStartDate: datetime
@@ -71,3 +73,14 @@ class ProjectUpdate(BaseModel):
     projectEndDate: datetime | None = None
     vendorOnProject: UUID | None = None
     projectTimezone: IanaTimezone | None = None
+    # reschedule (or, with null, clear) the next follow-up without recording one
+    nextFollowUpAt: datetime | None = None
+
+
+class FollowUpCreate(BaseModel):
+    """A follow-up the vendor made (a call, an email, a meeting)."""
+
+    note: str = Field(min_length=1, max_length=2000)
+    # when the next follow-up is due; leave out if none is planned. A time
+    # without an offset is read in the venue's timezone, like project dates.
+    nextFollowUpAt: datetime | None = None

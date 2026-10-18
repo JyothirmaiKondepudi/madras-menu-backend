@@ -24,6 +24,11 @@ Every API route is under **`/api/v1`** (BE-27); paths in this README are written
 - **Actions are `POST`:** accept, reject, read, seen, disable, enable, void, change-password. `PATCH` is only for editing a record's fields.
 - **Every list is paged (BE-08):** it returns `{"items": [...], "total": N, "limit": 50, "offset": 0}`. `?limit=` defaults to 50 and is capped at 200; `?offset=` skips rows. `?sort=field` sorts ascending and `?sort=-field` descending, from a short list of fields per endpoint (anything else is a 422 that lists them). Filters per list: projects `status`, `startFrom`/`startTo`, `search`; invoices `status`, `dueFrom`/`dueTo`, `overdue=true`; subprojects `dateFrom`/`dateTo`, `eventType`; users `role`, `disabled`, `search`; menu items `course`, `vegNonveg`, `active`, `search`; billing history `eventType`, `occurredFrom`/`occurredTo`. The shared code is `services/listing.py`.
 
+## Activity timeline and follow-ups (BE-14)
+
+- **`GET /projects/{id}/activity`** is the project's timeline, newest first and paged like every list: `account_activity` rows (project created, invoice accepted, followed up, ...) and payment events from `billing_history`, merged in one query (`services/timeline.py`) so paging works across both. Each entry has `kind` (`activity` or `payment`), `type`, `description`, `occurredAt`, and for payments `amount` and `voidedAt`. Vendor-only for now, because it includes internal entries (deleted invoices, void reasons); what clients may see is part of BE-12.
+- **`POST /projects/{id}/follow-ups`** with `{"note": "...", "nextFollowUpAt": "..."}` records a follow-up: a `followed_up` timeline entry, `lastFollowedUpAt` set to now, and `nextFollowUpAt` set to the given date (or cleared if left out). `PATCH /projects/{id}` with `nextFollowUpAt` reschedules without recording a follow-up. Times without an offset are read in the venue's timezone, like project dates. Sending the follow-up email itself is BE-18.
+
 ## Authentication & authorization
 
 Real, working, not a stub. Email + password only for now — Google Sign-In was designed (ID-token verification, no OAuth redirect flow needed) but explicitly dropped from this pass; it can be layered on later via a nullable `googleSub` column without reworking anything here.
