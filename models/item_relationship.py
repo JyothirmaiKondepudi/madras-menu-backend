@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Index, ForeignKey, text, func, UUID
+from sqlalchemy import CheckConstraint, Column, String, DateTime, Index, ForeignKey, text, func, UUID
 from sqlalchemy.dialects.postgresql import JSONB
 import uuid
 from database import Base
@@ -12,6 +12,14 @@ class ItemRelationship(Base):
             "from_item_id",
             unique=True,
             postgresql_where=text("relationship_type = 'parent_of'"),
+        ),
+        # backstops for the rules in hierarchy/mutations.py
+        CheckConstraint(
+            "from_item_id <> to_item_id", name="item_relationships_not_own_parent_check"
+        ),
+        CheckConstraint(
+            "relationship_type IN ('parent_of')",
+            name="item_relationships_relationship_type_check",
         ),
     )
 
