@@ -1,15 +1,18 @@
 from sqlalchemy.orm import Session
 from services.billing_history import (
+    billing_history_for_invoice_query,
+    billing_history_for_subproject_query,
+    billing_history_in_org_query,
+    billing_history_in_projects_query,
     PaymentError,
-    get_all_billing_history,
-    get_billing_history_by_invoice_id,
-    get_billing_history_by_project_ids,
-    get_billing_history_by_subproject_id,
     record_payment,
     void_payment,
 )
 from services.invoices import get_live_invoice
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from services.listing import Listing, Page, paginate
 from models import BillingHistory, User, Invoice, Subproject
 from schemas.billing_history import BillingHistoryOut, PaymentCreate, VoidPaymentRequest
 from database import get_db
@@ -89,22 +92,51 @@ def void_payment_made(
     return voided_payment
 
 
-@router.get("/billing-history", response_model=list[BillingHistoryOut])
-def get_billing_history(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
-):
+BILLING_HISTORY_SORTS = {
+    "occurredAt": BillingHistory.occurredAt,
+    "amount": BillingHistory.amount,
+}
+BillingEventType = BillingHistoryOut.model_fields["eventType"].annotation
 
+
+def _list_billing_history(db, stmt, listing, event_type, occurred_from, occurred_to):
+    if event_type is not None:
+        stmt = stmt.where(BillingHistory.eventType == event_type)
+    if occurred_from is not None:
+        stmt = stmt.where(BillingHistory.occurredAt >= occurred_from)
+    if occurred_to is not None:
+        stmt = stmt.where(BillingHistory.occurredAt <= occurred_to)
+    return paginate(
+        db, stmt, listing, BILLING_HISTORY_SORTS, "-occurredAt", BillingHistory.id
+    )
+
+
+@router.get("/billing-history", response_model=Page[BillingHistoryOut])
+def get_billing_history(
+    listing: Listing,
+    event_type: BillingEventType | None = Query(None, alias="eventType"),
+    occurred_from: datetime | None = Query(None, alias="occurredFrom"),
+    occurred_to: datetime | None = Query(None, alias="occurredTo"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     if user_has_permission(current_user, "billing:view_all", db):
-        return get_all_billing_history(current_user.userOrg, db)
-    return get_billing_history_by_project_ids(user_project_ids(current_user), db)
+        stmt = billing_history_in_org_query(current_user.userOrg)
+    else:
+        stmt = billing_history_in_projects_query(user_project_ids(current_user))
+    return _list_billing_history(db, stmt, listing, event_type, occurred_from, occurred_to)
 
 
 @router.get(
     "/subprojects/{subproject_id}/billing-history",
-    response_model=list[BillingHistoryOut],
+    response_model=Page[BillingHistoryOut],
 )
 def get_billing_history_for_subproject(
     subproject_id: UUID,
+    listing: Listing,
+    event_type: BillingEventType | None = Query(None, alias="eventType"),
+    occurred_from: datetime | None = Query(None, alias="occurredFrom"),
+    occurred_to: datetime | None = Query(None, alias="occurredTo"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     subproject: Subproject = Depends(load_subproject_in_org),
@@ -116,14 +148,19 @@ def get_billing_history_for_subproject(
             status_code=403,
             detail="not authorized to view this subproject's billing history",
         )
-    return get_billing_history_by_subproject_id(subproject_id, db)
+    stmt = billing_history_for_subproject_query(subproject_id)
+    return _list_billing_history(db, stmt, listing, event_type, occurred_from, occurred_to)
 
 
 @router.get(
-    "/invoices/{invoice_id}/billing-history", response_model=list[BillingHistoryOut]
+    "/invoices/{invoice_id}/billing-history", response_model=Page[BillingHistoryOut]
 )
 def get_billing_history_for_invoice(
     invoice_id: UUID,
+    listing: Listing,
+    event_type: BillingEventType | None = Query(None, alias="eventType"),
+    occurred_from: datetime | None = Query(None, alias="occurredFrom"),
+    occurred_to: datetime | None = Query(None, alias="occurredTo"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     invoice: Invoice = Depends(load_invoice_in_org),
@@ -138,4 +175,5 @@ def get_billing_history_for_invoice(
             status_code=403,
             detail="not authorized to view this invoice's billing history",
         )
-    return get_billing_history_by_invoice_id(invoice_id, db)
+    stmt = billing_history_for_invoice_query(invoice_id)
+    return _list_billing_history(db, stmt, listing, event_type, occurred_from, occurred_to)

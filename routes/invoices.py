@@ -1,19 +1,26 @@
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from services.invoices import (
+    invoices_for_user_query,
+    invoices_in_org_query,
+    invoices_in_project_query,
     add_new_invoice,
     delete_invoice_by_invoice_id,
-    get_all_invoices,
-    get_invoices_by_project_id,
-    get_invoices_by_user_id,
     regenerate_pdf,
     respond_to_invoice,
     update_invoice_by_invoice_id,
 )
-from services.invoice_status import InvoiceStatusError
+from services.invoice_status import COUNTED_INVOICE_STATUSES, InvoiceStatusError
 from services.invoice_pdf import invoice_pdf_path
-from services.billing_history import EDITABLE_INVOICE_STATUSES, count_live_payments
-from fastapi import APIRouter, Depends, HTTPException
+from services.billing_history import (
+    EDITABLE_INVOICE_STATUSES,
+    count_live_payments,
+    net_paid_on,
+)
+from services.listing import Listing, Page, paginate
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from models import Invoice, User, Project, Subproject
 from schemas.invoice import InvoiceOut, InvoiceCreate, InvoiceUpdate
 from database import get_db
@@ -33,18 +40,58 @@ router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
 
 
-@router.get("/invoices", response_model=list[InvoiceOut])
+INVOICE_SORTS = {
+    "createdAt": Invoice.createdAt,
+    "dueDate": Invoice.dueDate,
+    "invoiceAmount": Invoice.invoiceAmount,
+    "totalAmount": Invoice.totalAmount,
+    "invoiceStatus": Invoice.invoiceStatus,
+}
+InvoiceStatus = InvoiceOut.model_fields["invoiceStatus"].annotation
+
+
+def _list_invoices(db, stmt, listing, status, due_from, due_to, overdue):
+    if status is not None:
+        stmt = stmt.where(Invoice.invoiceStatus == status)
+    if due_from is not None:
+        stmt = stmt.where(Invoice.dueDate >= due_from)
+    if due_to is not None:
+        stmt = stmt.where(Invoice.dueDate <= due_to)
+    if overdue:
+        # the same rule billing info uses: accepted, past due, still owing
+        stmt = stmt.where(
+            Invoice.dueDate < datetime.now(timezone.utc),
+            Invoice.invoiceStatus.in_(COUNTED_INVOICE_STATUSES),
+            net_paid_on(Invoice.invoiceId) < Invoice.invoiceAmount,
+        )
+    return paginate(db, stmt, listing, INVOICE_SORTS, "-createdAt", Invoice.invoiceId)
+
+
+@router.get("/invoices", response_model=Page[InvoiceOut])
 def get_invoices(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    listing: Listing,
+    status: InvoiceStatus | None = None,
+    due_from: datetime | None = Query(None, alias="dueFrom"),
+    due_to: datetime | None = Query(None, alias="dueTo"),
+    overdue: bool = Query(False, description="only invoices past due and still owing"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if user_has_permission(current_user, "invoice:view_all", db):
-        return get_all_invoices(current_user.userOrg, db)
-    return get_invoices_by_user_id(current_user.userId, db)
+        stmt = invoices_in_org_query(current_user.userOrg)
+    else:
+        stmt = invoices_for_user_query(current_user.userId)
+    return _list_invoices(db, stmt, listing, status, due_from, due_to, overdue)
 
 
-@router.get("/projects/{project_id}/invoices", response_model=list[InvoiceOut])
+@router.get("/projects/{project_id}/invoices", response_model=Page[InvoiceOut])
 def getInvoicesByProjectId(
     project_id: UUID,
+    listing: Listing,
+    status: InvoiceStatus | None = None,
+    due_from: datetime | None = Query(None, alias="dueFrom"),
+    due_to: datetime | None = Query(None, alias="dueTo"),
+    overdue: bool = Query(False, description="only invoices past due and still owing"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     project: Project = Depends(load_project_in_org),
@@ -55,7 +102,8 @@ def getInvoicesByProjectId(
         raise HTTPException(
             status_code=403, detail="not authorized to view this project's invoices"
         )
-    return get_invoices_by_project_id(project_id, db)
+    stmt = invoices_in_project_query(project_id)
+    return _list_invoices(db, stmt, listing, status, due_from, due_to, overdue)
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceOut)

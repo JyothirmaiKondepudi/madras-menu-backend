@@ -376,7 +376,7 @@ def _org_b_payment(client, vendor_b):
 
 def test_user_list_only_shows_own_org(client, org_a, vendor_b, vendor_auth_headers):
     ids = [
-        u["userId"] for u in client.get("/users", headers=vendor_auth_headers).json()
+        u["userId"] for u in client.get("/users", headers=vendor_auth_headers).json()["items"]
     ]
     assert org_a["user"] in ids
     assert vendor_b["userId"] not in ids
@@ -395,7 +395,7 @@ def test_billing_history_list_only_shows_own_org(
 
     ids = [
         row["id"]
-        for row in client.get("/billing-history", headers=vendor_auth_headers).json()
+        for row in client.get("/billing-history", headers=vendor_auth_headers).json()["items"]
     ]
     assert ids == [own["id"]]  # just Org A's payment, exactly once
     assert other["payment"] not in ids
@@ -415,7 +415,7 @@ def test_list_only_shows_own_org(
     resp = client.get(path, headers=vendor_b["headers"])
     assert resp.status_code == 200, resp.text
 
-    ids = {item[id_field] for item in resp.json()}
+    ids = {item[id_field] for item in resp.json()["items"]}
     assert org_b[record] in ids, f"Vendor B can't see its own {record} in {path}"
     assert org_a[record] not in ids, f"Vendor B can see Org A's {record} in {path}"
 
@@ -433,7 +433,7 @@ def test_billing_info_list_only_shows_own_org(
 
     ids = [
         row["subprojectId"]
-        for row in client.get("/billing-info", headers=vendor_auth_headers).json()
+        for row in client.get("/billing-info", headers=vendor_auth_headers).json()["items"]
     ]
     assert ids == [org_a["subproject"]]
     assert other["subproject"] not in ids

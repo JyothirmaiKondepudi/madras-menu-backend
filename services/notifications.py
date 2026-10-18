@@ -30,16 +30,10 @@ def create_notification(
     return notification
 
 
-def get_unread_notifications(db: Session, user_id):
+def unread_notifications_query(user_id):
     """Unread, not un-seen: filters on readAt, not seenAt."""
-    return (
-        db.execute(
-            select(Notification)
-            .where(Notification.userId == user_id, Notification.readAt.is_(None))
-            .order_by(Notification.createdAt.desc())
-        )
-        .scalars()
-        .all()
+    return select(Notification).where(
+        Notification.userId == user_id, Notification.readAt.is_(None)
     )
 
 

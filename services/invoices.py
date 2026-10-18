@@ -20,21 +20,16 @@ _WITH_PROJECT_AND_USERS = joinedload(Invoice.project).options(
 )
 
 
-def get_all_invoices(organization_id, db: Session):
-    """ "All invoices" now means all invoices in the caller's own
-    organization — scoped by joining through Invoice's own project,
-    since Invoice doesn't carry its own organizationId (Project is the
-    single source of truth for which org a piece of business data belongs
-    to)."""
+def invoices_in_org_query(organization_id):
+    """ "All invoices" means all invoices in the caller's own organization,
+    scoped by joining through Invoice's own project, since Invoice doesn't
+    carry its own organizationId (Project is the single source of truth for
+    which org a piece of business data belongs to)."""
     return (
-        db.execute(
-            select(Invoice)
-            .join(Project, Invoice.projectAssociatedTo == Project.projectId)
-            .where(Project.organizationId == organization_id)
-            .options(_WITH_PROJECT_AND_USERS)
-        )
-        .scalars()
-        .all()
+        select(Invoice)
+        .join(Project, Invoice.projectAssociatedTo == Project.projectId)
+        .where(Project.organizationId == organization_id)
+        .options(_WITH_PROJECT_AND_USERS)
     )
 
 
@@ -50,30 +45,22 @@ def get_live_invoice(db: Session, invoice_id) -> Invoice | None:
     return invoice
 
 
-def get_invoices_by_user_id(user_id, db: Session):
-    """For a non-vendor's GET /invoices — scoped by invoiceAssignedTo (who
+def invoices_for_user_query(user_id):
+    """For a non-vendor's GET /invoices: scoped by invoiceAssignedTo (who
     it's billed to), not by project, since one person can be billed across
     several of their own projects."""
     return (
-        db.execute(
-            select(Invoice)
-            .where(Invoice.invoiceAssignedTo == user_id)
-            .options(_WITH_PROJECT_AND_USERS)
-        )
-        .scalars()
-        .all()
+        select(Invoice)
+        .where(Invoice.invoiceAssignedTo == user_id)
+        .options(_WITH_PROJECT_AND_USERS)
     )
 
 
-def get_invoices_by_project_id(project_id, db: Session):
+def invoices_in_project_query(project_id):
     return (
-        db.execute(
-            select(Invoice)
-            .where(Invoice.projectAssociatedTo == project_id)
-            .options(_WITH_PROJECT_AND_USERS)
-        )
-        .scalars()
-        .all()
+        select(Invoice)
+        .where(Invoice.projectAssociatedTo == project_id)
+        .options(_WITH_PROJECT_AND_USERS)
     )
 
 

@@ -1,13 +1,15 @@
 from sqlalchemy.orm import Session
 from uuid import UUID
 from services.tax_categories import (
+    tax_categories_query,
     add_new_tax_category,
     delete_tax_category_by_id,
-    get_all_tax_categories,
     get_tax_category_by_id,
     update_tax_category_by_id,
 )
 from fastapi import APIRouter, Depends, HTTPException
+from models import TaxCategory
+from services.listing import Listing, Page, paginate
 from schemas.tax_category import TaxCategoryOut, TaxCategoryCreate, TaxCategoryUpdate
 from database import get_db
 from auth.dependencies import require_permission
@@ -22,11 +24,20 @@ router = APIRouter()
 _manage = Depends(require_permission("tax_category:manage"))
 
 
+TAX_CATEGORY_SORTS = {
+    "name": TaxCategory.name,
+    "jurisdiction": TaxCategory.jurisdiction,
+    "ratePercent": TaxCategory.ratePercent,
+}
+
+
 @router.get(
-    "/tax-categories", response_model=list[TaxCategoryOut], dependencies=[_manage]
+    "/tax-categories", response_model=Page[TaxCategoryOut], dependencies=[_manage]
 )
-def get_tax_categories(db: Session = Depends(get_db)):
-    return get_all_tax_categories(db)
+def get_tax_categories(listing: Listing, db: Session = Depends(get_db)):
+    return paginate(
+        db, tax_categories_query(), listing, TAX_CATEGORY_SORTS, "name", TaxCategory.id
+    )
 
 
 @router.get(

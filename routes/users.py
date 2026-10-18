@@ -1,16 +1,18 @@
 from sqlalchemy.orm import Session
 from services.users import (
+    users_in_org_query,
     add_new_user,
     delete_user_by_user_id,
     disable_user_by_id,
     enable_user_by_id,
-    get_all_users,
     get_invoice_for_user,
     get_project_count_for_user,
     get_user_by_user_id,
     update_user_by_user_id,
 )
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
+from services.listing import Listing, Page, paginate
 from models import User
 from schemas.user import UserOut, UserCreate, UserUpdate
 from database import get_db
@@ -25,17 +27,37 @@ from uuid import UUID
 router = APIRouter()
 
 
+USER_SORTS = {
+    "fullName": User.fullName,
+    "userEmail": User.userEmail,
+    "userRole": User.userRole,
+    "createdAt": User.userCreatedAt,
+}
+UserRole = UserOut.model_fields["userRole"].annotation
+
+
 @router.get(
     "/users",
-    response_model=list[UserOut],
+    response_model=Page[UserOut],
     dependencies=[Depends(require_permission("user:list"))],
 )
 def get_users(
+    listing: Listing,
+    role: UserRole | None = None,
+    disabled: bool | None = None,
+    search: str | None = Query(None, description="part of the name or email"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    users = get_all_users(db, current_user.userOrg)
-    return users
+    stmt = users_in_org_query(current_user.userOrg)
+    if role is not None:
+        stmt = stmt.where(User.userRole == role)
+    if disabled is not None:
+        stmt = stmt.where(User.userDisabled == disabled)
+    if search:
+        pattern = f"%{search}%"
+        stmt = stmt.where(or_(User.fullName.ilike(pattern), User.userEmail.ilike(pattern)))
+    return paginate(db, stmt, listing, USER_SORTS, "fullName", User.userId)
 
 
 @router.get("/users/{user_id}", response_model=UserOut)

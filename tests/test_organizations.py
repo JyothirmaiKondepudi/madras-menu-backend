@@ -93,7 +93,7 @@ def test_platform_admin_lists_all_organizations(client, platform_admin_headers):
     created = _create_org(client, platform_admin_headers, orgName="Listed Org")
     resp = client.get("/organizations", headers=platform_admin_headers)
     assert resp.status_code == 200, resp.text
-    assert created["orgId"] in [o["orgId"] for o in resp.json()]
+    assert created["orgId"] in [o["orgId"] for o in resp.json()["items"]]
 
 
 def test_update_own_organization(client, engine, vendor_auth_headers, test_vendor_login, platform_admin_headers):

@@ -22,6 +22,7 @@ Every API route is under **`/api/v1`** (BE-27); paths in this README are written
 
 - **Nested paths put the parent first:** `/projects/{id}/invoices`, `/projects/{id}/subprojects`, `/users/{id}/projects`, `/invoices/{id}/billing-history`, `/subprojects/{id}/billing-history`, `/subprojects/{id}/billing-info`. The full list of organizations is `GET /organizations`.
 - **Actions are `POST`:** accept, reject, read, seen, disable, enable, void, change-password. `PATCH` is only for editing a record's fields.
+- **Every list is paged (BE-08):** it returns `{"items": [...], "total": N, "limit": 50, "offset": 0}`. `?limit=` defaults to 50 and is capped at 200; `?offset=` skips rows. `?sort=field` sorts ascending and `?sort=-field` descending, from a short list of fields per endpoint (anything else is a 422 that lists them). Filters per list: projects `status`, `startFrom`/`startTo`, `search`; invoices `status`, `dueFrom`/`dueTo`, `overdue=true`; subprojects `dateFrom`/`dateTo`, `eventType`; users `role`, `disabled`, `search`; menu items `course`, `vegNonveg`, `active`, `search`; billing history `eventType`, `occurredFrom`/`occurredTo`. The shared code is `services/listing.py`.
 
 ## Authentication & authorization
 

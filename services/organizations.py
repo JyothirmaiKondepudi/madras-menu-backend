@@ -2,8 +2,8 @@ from models import Organization, User, Project
 from sqlalchemy import select, func
 
 
-def get_organizations(db):
-    return db.execute(select(Organization)).scalars().all()
+def organizations_query():
+    return select(Organization)
 
 
 def create_new_org(new_org, db):

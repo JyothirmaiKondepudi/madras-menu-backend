@@ -77,7 +77,7 @@ def test_get_subprojects_by_project_id(client, test_project, vendor_auth_headers
         headers=vendor_auth_headers,
     )
     assert resp.status_code == 200
-    assert any(s["subprojectId"] == created["subprojectId"] for s in resp.json())
+    assert any(s["subprojectId"] == created["subprojectId"] for s in resp.json()["items"])
 
 
 def test_get_nonexistent_subproject_returns_404(client, vendor_auth_headers):
@@ -110,14 +110,14 @@ def test_client_only_sees_subprojects_for_linked_projects(
 
     resp = client.get("/subprojects", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json()["items"] == []
 
     client.post(
         f"/projects/{test_project['projectId']}/users/{test_client_login['userId']}",
         headers=vendor_auth_headers,
     )
     resp = client.get("/subprojects", headers={"Authorization": f"Bearer {token}"})
-    assert len(resp.json()) == 1
+    assert len(resp.json()["items"]) == 1
 
 
 def test_corrected_choice_values_are_accepted(

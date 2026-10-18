@@ -87,7 +87,7 @@ def test_client_only_sees_own_invoices(
 
     resp = client.get("/invoices", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json()["items"] == []
 
 
 def test_client_cannot_view_another_users_invoice(
@@ -127,7 +127,7 @@ def test_get_invoices_by_project_id(
         f"/projects/{test_project['projectId']}/invoices", headers=vendor_auth_headers
     )
     assert resp.status_code == 200
-    assert any(i["invoiceId"] == created["invoiceId"] for i in resp.json())
+    assert any(i["invoiceId"] == created["invoiceId"] for i in resp.json()["items"])
 
 
 def test_get_invoices_by_project_id_forbidden_for_unlinked_client(
@@ -285,11 +285,11 @@ def test_deleted_invoice_is_hidden_but_kept(
     )
 
     # gone from every read, and deleting again is a 404
-    listed = client.get("/invoices", headers=vendor_auth_headers).json()
+    listed = client.get("/invoices", headers=vendor_auth_headers).json()["items"]
     assert invoice_id not in [i["invoiceId"] for i in listed]
     by_project = client.get(
         f"/projects/{test_project['projectId']}/invoices", headers=vendor_auth_headers
-    ).json()
+    ).json()["items"]
     assert invoice_id not in [i["invoiceId"] for i in by_project]
     assert (
         client.delete(
@@ -574,13 +574,13 @@ def test_client_accepting_invoice_notifies_both_client_and_vendor(
     # both the acting client and the project's vendor should get a notification
     client_unread = client.get(
         "/notifications/unread", headers={"Authorization": f"Bearer {client_token}"}
-    ).json()
+    ).json()["items"]
     assert any(n["type"] == "invoice_accepted" for n in client_unread)
 
     vendor_token = _login(client, test_vendor_login["userEmail"])
     vendor_unread = client.get(
         "/notifications/unread", headers={"Authorization": f"Bearer {vendor_token}"}
-    ).json()
+    ).json()["items"]
     assert any(n["type"] == "invoice_accepted" for n in vendor_unread)
 
 

@@ -14,19 +14,15 @@ _WITH_PROJECT_AND_USERS = joinedload(Subproject.project).options(
 )
 
 
-def get_all_subprojects(organization_id, db: Session):
-    """ "All subprojects" now means all subprojects in the caller's own
-    organization — scoped by joining through Subproject's own project,
-    same reasoning as get_all_invoices."""
+def subprojects_in_org_query(organization_id):
+    """ "All subprojects" means all subprojects in the caller's own
+    organization, scoped by joining through Subproject's own project, same
+    reasoning as invoices_in_org_query."""
     return (
-        db.execute(
-            select(Subproject)
-            .join(Project, Subproject.projectAssociatedTo == Project.projectId)
-            .where(Project.organizationId == organization_id)
-            .options(_WITH_PROJECT_AND_USERS)
-        )
-        .scalars()
-        .all()
+        select(Subproject)
+        .join(Project, Subproject.projectAssociatedTo == Project.projectId)
+        .where(Project.organizationId == organization_id)
+        .options(_WITH_PROJECT_AND_USERS)
     )
 
 
@@ -148,27 +144,21 @@ def get_invoice_count_for_sub_project(sub_project_id: UUID, db: Session):
     )
 
 
-def get_all_subprojects_by_project_id(project_id, db: Session):
+def subprojects_in_project_query(project_id):
     return (
-        db.execute(
-            select(Subproject)
-            .where(Subproject.projectAssociatedTo == project_id)
-            .options(_WITH_PROJECT_AND_USERS)
-        )
-        .scalars()
-        .all()
+        select(Subproject)
+        .where(Subproject.projectAssociatedTo == project_id)
+        .options(_WITH_PROJECT_AND_USERS)
     )
 
 
-def get_subprojects_by_project_ids(project_ids, db: Session):
-    """For a non-vendor's GET /subprojects — every subproject belonging to
+def subprojects_in_projects_query(project_ids):
+    """For a non-vendor's GET /subprojects: every subproject belonging to
     any project they're linked to via user_projects."""
     return (
-        db.execute(
-            select(Subproject)
-            .where(Subproject.projectAssociatedTo.in_(project_ids))
-            .options(_WITH_PROJECT_AND_USERS)
-        )
-        .scalars()
-        .all()
+        select(Subproject)
+        .where(Subproject.projectAssociatedTo.in_(project_ids))
+        .options(_WITH_PROJECT_AND_USERS)
     )
+
+

@@ -107,7 +107,7 @@ def test_record_payment_creates_billing_history_row(client, test_project, test_u
     assert body["billingMetadata"] == {"method": "check"}
     assert body["failureReason"] is None
 
-    history = client.get(f"/invoices/{invoice['invoiceId']}/billing-history", headers=vendor_auth_headers).json()
+    history = client.get(f"/invoices/{invoice['invoiceId']}/billing-history", headers=vendor_auth_headers).json()["items"]
     assert len(history) == 1
     assert history[0]["id"] == body["id"]
 
@@ -201,7 +201,7 @@ def test_client_only_sees_billing_history_for_linked_projects(
     token = _login(client, test_client_login["userEmail"])
     client_auth = {"Authorization": f"Bearer {token}"}
 
-    assert client.get("/billing-history", headers=client_auth).json() == []
+    assert client.get("/billing-history", headers=client_auth).json()["items"] == []
     resp = client.get(f"/subprojects/{subproject['subprojectId']}/billing-history", headers=client_auth)
     assert resp.status_code == 403
 
@@ -210,10 +210,10 @@ def test_client_only_sees_billing_history_for_linked_projects(
         headers=vendor_auth_headers,
     )
 
-    assert len(client.get("/billing-history", headers=client_auth).json()) == 1
+    assert len(client.get("/billing-history", headers=client_auth).json()["items"]) == 1
     resp = client.get(f"/subprojects/{subproject['subprojectId']}/billing-history", headers=client_auth)
     assert resp.status_code == 200
-    assert len(resp.json()) == 1
+    assert len(resp.json()["items"]) == 1
 
 
 def test_record_payment_rejects_fractions_of_a_cent(client, test_project, test_user, vendor_auth_headers):
@@ -254,7 +254,7 @@ def test_voided_payment_stays_in_history_but_leaves_the_totals(client, test_proj
     info = client.get(f"/subprojects/{sub['subprojectId']}/billing-info", headers=h).json()
     assert info["totalPaid"] == 0.00
     assert info["balanceDue"] == 100.00
-    history = client.get(f"/invoices/{invoice['invoiceId']}/billing-history", headers=h).json()
+    history = client.get(f"/invoices/{invoice['invoiceId']}/billing-history", headers=h).json()["items"]
     assert [row["id"] for row in history] == [payment["id"]]
 
 

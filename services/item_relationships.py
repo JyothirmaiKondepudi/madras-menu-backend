@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 from hierarchy.mutations import insert_edge, update_edge, delete_edge, delete_node
 
 
-def get_all_item_relationships(db: Session):
-    return db.execute(select(ItemRelationship)).scalars().all()
+def item_relationships_query():
+    return select(ItemRelationship)
+
 
 def get_item_relationship_by_child_id(child_id, db: Session, relationship_type="parent_of"):
     return db.execute(
