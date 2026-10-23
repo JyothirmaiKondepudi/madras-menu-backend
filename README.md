@@ -30,6 +30,13 @@ Every API route is under **`/api/v1`** (BE-27); paths in this README are written
 - **`GET /projects/{id}/activity`** is the project's timeline, newest first and paged like every list: `account_activity` rows (project created, invoice accepted, followed up, ...) and payment events from `billing_history`, merged in one query (`services/timeline.py`) so paging works across both. Each entry has `kind` (`activity` or `payment`), `type`, `description`, `occurredAt`, and for payments `amount` and `voidedAt`. Vendor-only for now, because it includes internal entries (deleted invoices, void reasons); what clients may see is part of BE-12.
 - **`POST /projects/{id}/follow-ups`** with `{"note": "...", "nextFollowUpAt": "..."}` records a follow-up: a `followed_up` timeline entry, `lastFollowedUpAt` set to now, and `nextFollowUpAt` set to the given date (or cleared if left out). `PATCH /projects/{id}` with `nextFollowUpAt` reschedules without recording a follow-up. Times without an offset are read in the venue's timezone, like project dates. Sending the follow-up email itself is BE-18.
 
+## Business profile, rate card and equipment (BE-07)
+
+- **Business profile** fields live on the organization and are edited with `PATCH /organizations/{id}`: `orgAddress`, `orgPhone`, `orgEin` (stored as `12-3456789`), `orgCountry` (two-letter code, stored uppercase), `orgLogoUrl` (a link for now; uploads come with file storage, BE-20), `orgSocials` (`{"instagram": "https://..."}`) and `orgWebsites` (a list). URLs must be http(s). `orgName` is the business name.
+- **Rate card:** `GET/POST /rate-card`, `GET/PATCH/DELETE /rate-card/{id}`. Each service has `name`, `price`, `pricingUnit` (`guest`, `hour`, `event` or `tray`), optional `hours` and `category`, and `active` (false hides it from pickers but keeps it). Filters: `active`, `category`, `search`.
+- **Equipment:** `GET/POST /equipment`, `GET/PATCH/DELETE /equipment/{id}`, with `name`, `amount` (its default price) and `active`. Filters: `active`, `search`.
+- Both are per organization and vendor-only (`rate_card:manage`, `equipment:manage`); another organization's items read as 404. They're deleted with their organization. The rate card replaces the old unused `price_tiers` table, which is dropped.
+
 ## Authentication & authorization
 
 Real, working, not a stub. Email + password only for now — Google Sign-In was designed (ID-token verification, no OAuth redirect flow needed) but explicitly dropped from this pass; it can be layered on later via a nullable `googleSub` column without reworking anything here.

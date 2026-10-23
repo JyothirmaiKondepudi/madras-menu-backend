@@ -26,6 +26,7 @@ from routes.notifications import router as notifications_router
 from routes.billing_history import router as billing_history_router
 from routes.billing_info import router as billing_info_router
 from routes.organizations import router as org_router
+from routes.catalog import router as catalog_router
 from services.api_log_activity import record_api_log
 from hierarchy.mutations import HierarchyError
 from database import engine, get_db
@@ -62,6 +63,7 @@ for router in (
     notifications_router,
     billing_history_router,
     billing_info_router,
+    catalog_router,
 ):
     api.include_router(router)
 app.include_router(api)

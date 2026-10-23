@@ -70,6 +70,16 @@ class Diet(StrEnum):
     OTHER = "Other"
 
 
+
+class PricingUnit(StrEnum):
+    """What a rate card price is per."""
+
+    GUEST = "guest"
+    HOUR = "hour"
+    EVENT = "event"
+    TRAY = "tray"
+
+
 def check_in(column: str, choices: type[StrEnum]) -> str:
     """SQL for a CHECK constraint limiting `column` to the enum's values."""
     values = ", ".join(f"'{choice.value}'" for choice in choices)
