@@ -17,10 +17,6 @@ def projects_in_org_query(organization_id):
     )
 
 
-def get_project_by_id(project_id, db: Session):
-    return db.get(Project, project_id)
-
-
 def add_new_Project(newProject, db: Session, organization_id=None, actor_id=None):
     # times without an offset are local to the venue: the project's timezone, else the org's
     timezone = (

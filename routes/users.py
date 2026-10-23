@@ -7,7 +7,6 @@ from services.users import (
     enable_user_by_id,
     get_invoice_for_user,
     get_project_count_for_user,
-    get_user_by_user_id,
     update_user_by_user_id,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -75,9 +74,6 @@ def get_user_by_id(
         db,
         "cannot view another user's profile",
     )
-    user = get_user_by_user_id(user_id, db)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
     return user
 
 

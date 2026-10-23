@@ -151,13 +151,13 @@ def test_follow_up_without_a_next_date_clears_it(client, test_project, vendor_au
     assert resp.json()["nextFollowUpAt"] is None
 
 
-def test_next_follow_up_without_offset_is_read_in_the_venue_timezone(client, test_user, vendor_auth_headers):
+def test_next_follow_up_without_offset_is_read_in_the_venue_timezone(test_vendor_login, client, test_user, vendor_auth_headers):
     project = client.post("/projects", json={
         "projectName": "NY Event",
         "projectStatus": "Proposal",
         "projectStartDate": "2026-11-14T18:00:00",
         "projectEndDate": "2026-11-14T23:00:00",
-        "vendorOnProject": test_user["userId"],
+        "vendorOnProject": test_vendor_login["userId"],
         "projectTimezone": "America/New_York",
     }, headers=vendor_auth_headers).json()
     resp = client.post(f"/projects/{project['projectId']}/follow-ups",

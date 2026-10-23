@@ -1075,7 +1075,7 @@ def _org_client(client, headers, email):
     return resp.json()
 
 
-def _other_project(client, test_user, headers):
+def _other_project(client, vendor_id, headers):
     resp = client.post(
         "/projects",
         json={
@@ -1083,7 +1083,7 @@ def _other_project(client, test_user, headers):
             "projectStatus": "Proposal",
             "projectStartDate": "2026-11-14T18:00:00",
             "projectEndDate": "2026-11-14T23:00:00",
-            "vendorOnProject": test_user["userId"],
+            "vendorOnProject": vendor_id,
         },
         headers=headers,
     )
@@ -1152,10 +1152,10 @@ def test_invoice_cannot_be_reassigned_to_a_non_member(
     assert resp.json()["invoiceAssignedTo"] == outsider["userId"]
 
 
-def test_invoice_cannot_use_another_projects_subproject(
+def test_invoice_cannot_use_another_projects_subproject(test_vendor_login, 
     client, test_user, test_project, vendor_auth_headers
 ):
-    other = _other_project(client, test_user, vendor_auth_headers)
+    other = _other_project(client, test_vendor_login["userId"], vendor_auth_headers)
     other_subproject = _create_subproject(
         client, other["projectId"], vendor_auth_headers
     )
@@ -1210,12 +1210,12 @@ def test_database_rejects_invoice_for_a_non_member(
         )
 
 
-def test_database_rejects_invoice_with_another_projects_subproject(
+def test_database_rejects_invoice_with_another_projects_subproject(test_vendor_login, 
     client, engine, test_user, test_project, vendor_auth_headers
 ):
     from sqlalchemy.exc import IntegrityError
 
-    other = _other_project(client, test_user, vendor_auth_headers)
+    other = _other_project(client, test_vendor_login["userId"], vendor_auth_headers)
     other_subproject = _create_subproject(
         client, other["projectId"], vendor_auth_headers
     )

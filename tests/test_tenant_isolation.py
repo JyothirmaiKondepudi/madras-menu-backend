@@ -307,12 +307,12 @@ def test_cannot_reassign_invoice_to_other_org_user(
 # --- An invoice's subproject must belong to the invoice's own project -------
 
 
-def test_invoice_subproject_must_belong_to_its_project(
+def test_invoice_subproject_must_belong_to_its_project(test_vendor_login, 
     client, org_a, test_user, vendor_auth_headers
 ):
     other_project = client.post(
         "/projects",
-        json=_project_body(test_user["userId"], name="Another Org A Project"),
+        json=_project_body(test_vendor_login["userId"], name="Another Org A Project"),
         headers=vendor_auth_headers,
     ).json()
     other_subproject = client.post(

@@ -116,8 +116,6 @@ def getinvoiceById(
     current_user: User = Depends(get_current_user),
     invoice: Invoice = Depends(load_invoice_in_org),
 ):
-    if invoice is None:
-        raise HTTPException(status_code=404, detail="invoice not found")
     ensure_own_or_permission(
         current_user,
         invoice.invoiceAssignedTo == current_user.userId,
@@ -294,9 +292,6 @@ def accept_invoice(
     current_user: User = Depends(get_current_user),
     invoice: Invoice = Depends(load_invoice_in_org),
 ):
-
-    if invoice is None:
-        raise HTTPException(status_code=404, detail="invoice not found")
     ensure_own_or_permission(
         current_user,
         invoice.invoiceAssignedTo == current_user.userId,
@@ -304,7 +299,6 @@ def accept_invoice(
         db,
         "not authorized to respond to this invoice",
     )
-
     return _respond(invoice, "Accepted", db, current_user)
 
 
@@ -315,8 +309,6 @@ def reject_invoice(
     current_user: User = Depends(get_current_user),
     invoice: Invoice = Depends(load_invoice_in_org),
 ):
-    if invoice is None:
-        raise HTTPException(status_code=404, detail="invoice not found")
     ensure_own_or_permission(
         current_user,
         invoice.invoiceAssignedTo == current_user.userId,
