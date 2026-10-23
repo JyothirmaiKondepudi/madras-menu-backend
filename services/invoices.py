@@ -9,14 +9,25 @@ from services.notifications import create_notification
 from services.account_activity import record_activity
 from services.timezones import to_instant
 from services.billing_history import _recompute_billing_info, lock_invoice
-from services.invoice_status import InvoiceStatusError, change_invoice_status
+from services.invoice_status import EDITABLE_INVOICE_STATUSES, InvoiceStatusError, change_invoice_status
+from services.invoice_document import (
+    InvoiceDocumentError,
+    build_line_items,
+    next_invoice_number,
+    refresh_snapshots,
+    totals,
+)
 from datetime import datetime, timezone, timedelta
 
 # InvoiceOut nests project -> client/vendor, same reasoning as
-# services/subproject.py's _WITH_PROJECT_AND_USERS.
-_WITH_PROJECT_AND_USERS = joinedload(Invoice.project).options(
-    selectinload(Project.users),
-    joinedload(Project.vendor),
+# services/subproject.py's _WITH_PROJECT_AND_USERS, and the line items:
+# loaded for the whole list in one query rather than one per invoice
+_WITH_PROJECT_AND_USERS = (
+    joinedload(Invoice.project).options(
+        selectinload(Project.users),
+        joinedload(Project.vendor),
+    ),
+    selectinload(Invoice.lineItems),
 )
 
 
@@ -29,7 +40,7 @@ def invoices_in_org_query(organization_id):
         select(Invoice)
         .join(Project, Invoice.projectAssociatedTo == Project.projectId)
         .where(Project.organizationId == organization_id)
-        .options(_WITH_PROJECT_AND_USERS)
+        .options(*_WITH_PROJECT_AND_USERS)
     )
 
 
@@ -52,7 +63,7 @@ def invoices_for_user_query(user_id):
     return (
         select(Invoice)
         .where(Invoice.invoiceAssignedTo == user_id)
-        .options(_WITH_PROJECT_AND_USERS)
+        .options(*_WITH_PROJECT_AND_USERS)
     )
 
 
@@ -60,7 +71,7 @@ def invoices_in_project_query(project_id):
     return (
         select(Invoice)
         .where(Invoice.projectAssociatedTo == project_id)
-        .options(_WITH_PROJECT_AND_USERS)
+        .options(*_WITH_PROJECT_AND_USERS)
     )
 
 
@@ -87,12 +98,27 @@ def add_new_invoice(new_invoice, db: Session, actor_id=None):
             due_date = sub_project.subprojectDate - timedelta(days=7)
     else:
         time_zone = db.get(Project, new_invoice.projectAssociatedTo).effectiveTimezone
+    org_id = db.get(Project, new_invoice.projectAssociatedTo).organizationId
+
+    # the total comes from the line items when there are any (BE-04), else
+    # it's the single amount sent
+    if new_invoice.lineItems is not None:
+        line_items = build_line_items(new_invoice.lineItems, org_id, db)
+        subtotal, total = totals(line_items, new_invoice.adjustmentPercentage)
+    else:
+        line_items, subtotal, total = [], None, new_invoice.totalAmount
+
     created_invoice = Invoice(
         invoiceStatus="Assigned",
-        invoiceAmount=compute_invoice_amount(
-            new_invoice.totalAmount, new_invoice.depositPercentage
-        ),
-        totalAmount=new_invoice.totalAmount,
+        invoiceNumber=next_invoice_number(org_id, db),
+        invoiceAmount=compute_invoice_amount(total, new_invoice.depositPercentage),
+        totalAmount=total,
+        subtotalAmount=subtotal,
+        adjustmentPercentage=new_invoice.adjustmentPercentage,
+        currency=new_invoice.currency,
+        legalTerms=new_invoice.legalTerms,
+        deliverables=new_invoice.deliverables,
+        lineItems=line_items,
         depositPercentage=new_invoice.depositPercentage,
         invoiceAssignedTo=new_invoice.invoiceAssignedTo,
         projectAssociatedTo=new_invoice.projectAssociatedTo,
@@ -108,6 +134,8 @@ def add_new_invoice(new_invoice, db: Session, actor_id=None):
 
     db.flush()
     db.refresh(created_invoice)
+    refresh_snapshots(created_invoice, db)
+    db.flush()
 
     create_notification(
         db,
@@ -135,8 +163,26 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
     old_subproject_id = invoice.subprojectId
 
     changes = updates.model_dump(exclude_unset=True)
+    # line items are rebuilt below, not copied over as plain dicts
+    changes.pop("lineItems", None)
+    if "totalAmount" in changes and invoice.lineItems and "lineItems" not in updates.model_fields_set:
+        raise InvoiceDocumentError(
+            "this invoice's total is computed from its line items; change the lines instead"
+        )
     for field, value in changes.items():
         setattr(invoice, field, value)
+
+    if "lineItems" in updates.model_fields_set:
+        invoice.lineItems = build_line_items(
+            updates.lineItems, invoice.project.organizationId, db
+        )
+    if "lineItems" in updates.model_fields_set or "adjustmentPercentage" in changes:
+        if not invoice.lineItems:
+            raise InvoiceDocumentError("adjustmentPercentage applies to line items")
+        invoice.subtotalAmount, invoice.totalAmount = totals(
+            invoice.lineItems, invoice.adjustmentPercentage
+        )
+        changes["totalAmount"] = invoice.totalAmount
 
     if "totalAmount" in changes or "depositPercentage" in changes:
         if invoice.totalAmount is None or invoice.depositPercentage is None:
@@ -164,6 +210,10 @@ def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session
     # sorted so concurrent moves lock subprojects in the same order and can't deadlock
     for subproject_id in sorted({old_subproject_id, invoice.subprojectId} - {None}):
         _recompute_billing_info(subproject_id, db)
+    # still the vendor's draft: keep the printed business and client details
+    # current. Once the client accepts, the invoice keeps what they saw.
+    if invoice.invoiceStatus in EDITABLE_INVOICE_STATUSES:
+        refresh_snapshots(invoice, db)
     db.flush()
     db.refresh(invoice)
 

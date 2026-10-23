@@ -11,6 +11,7 @@ from services.invoices import (
     update_invoice_by_invoice_id,
 )
 from services.invoice_status import COUNTED_INVOICE_STATUSES, InvoiceStatusError
+from services.invoice_document import InvoiceDocumentError
 from services.invoice_pdf import invoice_pdf_path
 from services.billing_history import (
     EDITABLE_INVOICE_STATUSES,
@@ -175,7 +176,10 @@ def add_invoice(
         subproject = db.get(Subproject, new_invoice.subprojectId)
         if subproject is None or subproject.projectAssociatedTo != project.projectId:
             raise HTTPException(status_code=404, detail="subproject not found")
-    created_invoice = add_new_invoice(new_invoice, db, actor_id=current_user.userId)
+    try:
+        created_invoice = add_new_invoice(new_invoice, db, actor_id=current_user.userId)
+    except InvoiceDocumentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     if created_invoice is None:
         raise HTTPException(status_code=409, detail=f"failure creating a new invoice")
     db.commit()
@@ -229,6 +233,14 @@ def update_invoice(
                 status_code=409,
                 detail=f"This invoice has {payment_count} payments. Void them before moving the invoice.",
             )
+    # the document (lines, adjustment, currency) is what the client agrees
+    # to, so like moving it, it only changes before they accept
+    document_fields = {"lineItems", "adjustmentPercentage", "currency"}
+    if document_fields & updates.model_fields_set and invoice.invoiceStatus not in EDITABLE_INVOICE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{invoice.invoiceStatus} invoices' line items, adjustment and currency can't be changed.",
+        )
     load_invoice_in_org(invoice_id, current_user, db)
     try:
         updated_invoice = update_invoice_by_invoice_id(invoice_id, updates, db)

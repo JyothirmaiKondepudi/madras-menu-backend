@@ -14,6 +14,7 @@ suite's `Base.metadata.create_all()` to see the full schema, exactly like
 from .user import User
 from .project import Project, user_projects
 from .invoice import Invoice
+from .invoice_document import InvoiceLineItem, InvoiceNumberCounter
 from .subproject import Subproject
 from .tax_category import TaxCategory
 from .menu_item import MenuItem
@@ -33,6 +34,8 @@ __all__ = [
     "Project",
     "user_projects",
     "Invoice",
+    "InvoiceLineItem",
+    "InvoiceNumberCounter",
     "Subproject",
     "TaxCategory",
     "MenuItem",
