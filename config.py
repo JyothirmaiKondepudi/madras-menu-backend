@@ -67,6 +67,16 @@ class DatabaseSettings(BaseModel):
     DB_CONNECTION_TIMEOUT: int = Field(default=5, gt=0)
 
 
+class PasswordSettings(BaseModel):
+    """Kept apart from Settings so seed scripts can hash passwords without
+    SECRET_KEY. Each step up doubles the time to hash and to check a
+    password (12 is about 0.2 s): slower for an attacker trying guesses,
+    and slower for every login. 4 to 31 is the range bcrypt accepts;
+    the tests use 4 so they don't spend minutes hashing."""
+
+    BCRYPT_ROUNDS: int = Field(default=12, ge=4, le=31)
+
+
 def _from_environment(names) -> dict[str, str]:
     # an empty value (e.g. "SECRET_KEY=" copied from the example file) counts as unset
     return {name: os.environ[name] for name in names if os.environ.get(name, "").strip()}
@@ -102,3 +112,8 @@ def database_url() -> str:
 
 def database_pool_settings() -> DatabaseSettings:
     return _load(DatabaseSettings)
+
+
+@lru_cache
+def password_settings() -> PasswordSettings:
+    return _load(PasswordSettings)

@@ -119,3 +119,35 @@ def test_pool_settings_dont_need_secret_key(pool_env, env):
     # scripts and Alembic build the engine without the app's other settings
     env.delenv("SECRET_KEY")
     assert database_pool_settings().DB_POOL_SIZE == 5
+
+
+# --- password hashing cost ------------------------------------------------------
+
+
+def test_bcrypt_rounds_default_is_production_strength(monkeypatch):
+    # tests run with 4 (conftest.py); this guards the real default
+    from config import PasswordSettings
+
+    monkeypatch.delenv("BCRYPT_ROUNDS", raising=False)
+    assert PasswordSettings().BCRYPT_ROUNDS == 12
+
+
+@pytest.mark.parametrize("value", ["3", "32", "abc"])
+def test_invalid_bcrypt_rounds_names_the_setting(monkeypatch, value):
+    from config import PasswordSettings, _load
+
+    monkeypatch.setenv("BCRYPT_ROUNDS", value)
+    with pytest.raises(ConfigError, match="BCRYPT_ROUNDS"):
+        _load(PasswordSettings)
+
+
+def test_password_hashed_at_one_cost_still_verifies():
+    # a password hashed before BCRYPT_ROUNDS changed must keep working
+    import bcrypt
+
+    from auth.security import hash_password, verify_password
+
+    old = bcrypt.hashpw(b"correct-horse", bcrypt.gensalt(6)).decode()
+    assert verify_password("correct-horse", old)
+    assert verify_password("correct-horse", hash_password("correct-horse"))
+    assert not verify_password("wrong", old)
