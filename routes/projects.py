@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy.orm import Session
 from services.projects import (
     add_new_Project,
@@ -16,7 +18,11 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import Project, User, Invoice
 from schemas.project import FollowUpCreate, ProjectOut, ProjectCreate, ProjectUpdate
+from schemas.project_creation import NewProject
 from schemas.project_includes import ProjectWithIncludesOut
+from services.invoice_document import InvoiceDocumentError
+from services.invoices import regenerate_pdf
+from services.project_creation import ProjectCreationError, create_full_project
 from schemas.timeline import TimelineEntryOut
 from services.project_includes import INCLUDES, parse_includes, with_includes
 from services.timeline import describe_payment, project_timeline_query, record_follow_up
@@ -36,6 +42,7 @@ from uuid import UUID
 from services.listing import Listing, Page, paginate
 
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 
 
 PROJECT_SORTS = {
@@ -306,4 +313,53 @@ def add_follow_up(
     )
     db.commit()
     return updated_project
+
+
+# --- the whole project in one call (BE-06) ---------------------------------------
+
+
+@router.post(
+    "/projects/full",
+    response_model=ProjectWithIncludesOut,
+    dependencies=[Depends(require_permission("project:create"))],
+)
+def create_project_with_details(
+    body: NewProject,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Creates the client (or reuses theirs, found by email), the project,
+    its subprojects and an optional first invoice in one transaction: if any
+    part fails, nothing is saved. Returns the project with everything
+    included."""
+    # every permission the separate endpoints would need, checked before
+    # anything is created
+    needed = ["user:create", "project:manage_users"]
+    if body.subprojects:
+        needed.append("subproject:create")
+    if body.invoice is not None:
+        needed.append("invoice:create")
+    missing = [p for p in needed if not user_has_permission(current_user, p, db)]
+    if missing:
+        raise HTTPException(status_code=403, detail=f"missing required permission: {', '.join(missing)}")
+    if body.project.vendorOnProject is not None:
+        load_user_in_org(body.project.vendorOnProject, current_user, db)
+
+    try:
+        project, invoice = create_full_project(body, db, current_user)
+    except ProjectCreationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    except InvoiceDocumentError as exc:
+        raise HTTPException(status_code=422, detail=f"invoice: {exc}")
+    db.commit()
+
+    if invoice is not None:
+        # after the commit, like POST /invoices: a failed PDF doesn't undo
+        # the project, and the download route regenerates it
+        try:
+            regenerate_pdf(invoice, db)
+        except Exception:
+            logger.exception("PDF generation failed for invoice %s", invoice.invoiceId)
+    [created] = with_includes(db, [project], {"subprojects", "invoices", "billing"}, current_user)
+    return created
 
