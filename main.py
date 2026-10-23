@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, OperationalError
 # not Python's built-in TimeoutError: raised when no pooled connection frees up in time
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
-from starlette.concurrency import run_in_threadpool
+from starlette.background import BackgroundTask, BackgroundTasks
 import time
 import uuid
 import ipaddress
@@ -106,26 +106,25 @@ async def log_api_activity(request: Request, call_next):
         return await call_next(request)
     start = time.perf_counter()
     request_id = uuid.uuid4()
-    status_code, error = 500, None
+    error = None
     try:
         response = await call_next(request)  # runs auth, validation, the route
-        status_code = response.status_code
-        response.headers["X-Request-ID"] = str(request_id)
-        return response
     except Exception as exc:
         # Return the 500 here instead of re-raising: Starlette's own 500 is
         # built outside every middleware, so it would miss the CORS headers
         # and the browser would report a CORS error instead of the real one.
         error = repr(exc)
         logger.exception("Unhandled error on %s %s", request.method, request.url.path)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"},
-            headers={"X-Request-ID": str(request_id)},
-        )
-    finally:
-        await run_in_threadpool(
-            record_api_log,  # own session, wrapped in try/except so it never breaks the request
+        response = JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    response.headers["X-Request-ID"] = str(request_id)
+
+    # Written after the response has gone out (BE-24), so no request waits on
+    # its own log insert. record_api_log uses its own session and never
+    # raises. Rows are kept indefinitely for now: no retention or cleanup.
+    _run_after_response(
+        response,
+        BackgroundTask(
+            record_api_log,
             requestId=request_id,
             orgId=getattr(request.state, "org_id", None),
             method=request.method,
@@ -133,12 +132,26 @@ async def log_api_activity(request: Request, call_next):
             userAgent=request.headers.get("user-agent"),
             path=request.url.path,
             route=_route_template(request),
-            statusCode=status_code,
+            statusCode=response.status_code,
             duration_ms=int((time.perf_counter() - start) * 1000),
             userId=getattr(request.state, "user_id", None),
             ipAddress=_client_ip(request),
             error=error,
-        )
+        ),
+    )
+    return response
+
+
+def _run_after_response(response, task: BackgroundTask) -> None:
+    """Adds task to what runs once the response is sent, keeping any
+    background work the route already attached."""
+    if response.background is None:
+        response.background = task
+    else:
+        tasks = BackgroundTasks()
+        tasks.add_task(response.background)
+        tasks.add_task(task)
+        response.background = tasks
 
 
 CORS_ORIGINS = settings.CORS_ORIGINS
