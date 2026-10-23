@@ -6,6 +6,9 @@ os.environ["DATABASE_URL"] = os.environ.get(
 )
 # auth/security.py needs a SECRET_KEY to sign/verify JWTs; tests don't load .env.local
 os.environ.setdefault("SECRET_KEY", "test-secret-key-do-not-use-in-production")
+# bcrypt's minimum cost: about 1 ms per hash instead of about 0.2 s, which was
+# most of the suite's run time. Production keeps the default of 12.
+os.environ.setdefault("BCRYPT_ROUNDS", "4")
 # services/invoice_pdf.py writes real PDF files — use a throwaway temp dir
 import tempfile
 os.environ.setdefault("INVOICE_PDF_DIR", tempfile.mkdtemp(prefix="madras_test_invoices_"))

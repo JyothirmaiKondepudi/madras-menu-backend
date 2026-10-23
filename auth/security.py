@@ -19,7 +19,7 @@ from uuid import UUID
 import bcrypt
 import jwt
 
-from config import get_settings
+from config import get_settings, password_settings
 
 # SECRET_KEY, JWT_ALGORITHM and JWT_EXPIRE_MINUTES come from config.py and are
 # read when a token is signed or checked, so scripts that only hash passwords
@@ -28,10 +28,13 @@ from config import get_settings
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    rounds = password_settings().BCRYPT_ROUNDS
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds)).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    # the hash records the cost it was made with, so this needs no setting:
+    # hashes from before a BCRYPT_ROUNDS change keep working
     return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
