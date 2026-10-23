@@ -24,7 +24,7 @@ from .billing_history import BillingHistory
 from .billing_info import BillingInfo
 from .account_activity import AccountActivity
 from .organizations import Organization
-from .price_tier import PriceTier
+from .catalog import Equipment, RateCardItem
 from .live_station import LiveStation
 from .api_logs import ApiLogs
 
@@ -44,7 +44,8 @@ __all__ = [
     "BillingInfo",
     "AccountActivity",
     "Organization",
-    "PriceTier",
+    "RateCardItem",
+    "Equipment",
     "LiveStation",
     "ApiLogs",
 ]

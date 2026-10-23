@@ -42,6 +42,8 @@ PERMISSIONS = [
     ("org:create", "create a new org"),
     ("org:update", "edit org account"),
     ("org:delete", "delete org account"),
+    ("rate_card:manage", "Read or write the organization's rate card of services"),
+    ("equipment:manage", "Read or write the organization's equipment list"),
 ]
 
 # role -> permission names. "client" is absent — its access is resource-scoped, not permission-based.
