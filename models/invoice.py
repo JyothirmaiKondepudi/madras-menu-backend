@@ -1,5 +1,17 @@
-from sqlalchemy import Column, Enum, ForeignKey, ForeignKeyConstraint, Numeric, DateTime, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Numeric,
+    String,
+    Text,
+    func,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 import uuid
 from database import Base
@@ -26,6 +38,11 @@ class Invoice(Base):
             ["subprojects.subproject_id", "subprojects.project_associated_to"],
             name="invoices_subproject_in_project_fkey",
             ondelete="RESTRICT",
+        ),
+        CheckConstraint("currency ~ '^[A-Z]{3}$'", name="invoices_currency_check"),
+        CheckConstraint(
+            "adjustment_percentage BETWEEN -100 AND 100",
+            name="invoices_adjustment_percentage_check",
         ),
     )
 
@@ -86,7 +103,32 @@ class Invoice(Base):
     totalAmount = Column("total_amount", Numeric(12, 2))
     depositPercentage = Column("deposit_percentage", Numeric(5, 2))  # 25 = 25%
     dueDate = Column("due_date", DateTime(timezone=True), nullable=True, index=True)
+
+    # --- the invoice document (BE-04) ---
+    # per organization and year, e.g. INV-2026-0001 (services/invoice_document.py);
+    # never reused, even if the invoice is deleted. Not unique across the
+    # table: every organization has its own INV-2026-0001. The counter hands
+    # each number out once per organization.
+    invoiceNumber = Column("invoice_number", String, index=True)
+    # ISO 4217 code
+    currency = Column(String(3), nullable=False, server_default=text("'USD'"))
+    # sum of the line items; null for invoices entered as a single total
+    subtotalAmount = Column("subtotal_amount", Numeric(12, 2))
+    # applied to the subtotal: -10 is a 10% discount, 5 a 5% surcharge
+    adjustmentPercentage = Column("adjustment_percentage", Numeric(5, 2))
+    legalTerms = Column("legal_terms", Text)
+    deliverables = Column(Text)
+    # the business and client as they were when the invoice was issued: kept
+    # current while it's editable (Assigned), frozen once the client accepts
+    businessSnapshot = Column("business_snapshot", JSONB)
+    clientSnapshot = Column("client_snapshot", JSONB)
     # Explicit foreign_keys: Project.finalInvoiceId adds a second FK path.
     project = relationship("Project", foreign_keys=[projectAssociatedTo])
     # explicit foreign_keys: invoices_subproject_in_project_fkey is a second path to subprojects
     subproject = relationship("Subproject", foreign_keys=[subprojectId])
+    lineItems = relationship(
+        "InvoiceLineItem",
+        order_by="InvoiceLineItem.position",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

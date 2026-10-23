@@ -30,6 +30,16 @@ Every API route is under **`/api/v1`** (BE-27); paths in this README are written
 - **`GET /projects/{id}/activity`** is the project's timeline, newest first and paged like every list: `account_activity` rows (project created, invoice accepted, followed up, ...) and payment events from `billing_history`, merged in one query (`services/timeline.py`) so paging works across both. Each entry has `kind` (`activity` or `payment`), `type`, `description`, `occurredAt`, and for payments `amount` and `voidedAt`. Vendor-only for now, because it includes internal entries (deleted invoices, void reasons); what clients may see is part of BE-12.
 - **`POST /projects/{id}/follow-ups`** with `{"note": "...", "nextFollowUpAt": "..."}` records a follow-up: a `followed_up` timeline entry, `lastFollowedUpAt` set to now, and `nextFollowUpAt` set to the given date (or cleared if left out). `PATCH /projects/{id}` with `nextFollowUpAt` reschedules without recording a follow-up. Times without an offset are read in the venue's timezone, like project dates. Sending the follow-up email itself is BE-18.
 
+## The invoice document (BE-04)
+
+- **Line items:** create an invoice with `lineItems` (each `kind` = `service`, `equipment` or `custom`, a `quantity`, and either a `sourceId` from the rate card / equipment list or a `name` and `unitPrice`), or, for an invoice with no breakdown, a single `totalAmount`; not both. Catalog lines copy the name and price (they can be overridden), so later catalog edits don't change invoices already written.
+- **Totals:** each line is quantity x unit price (`lineTotal`), their sum is `subtotalAmount`, `adjustmentPercentage` (-10 = 10% discount, 5 = 5% surcharge) turns that into `totalAmount`, and `depositPercentage` into `invoiceAmount` as before. With line items, `totalAmount` can't be edited directly: change the lines.
+- **Invoice numbers:** `INV-<year>-<n>`, counting from 1 per organization per year, handed out by an atomic counter, so simultaneous invoices never share a number, and never reused (deleted invoices keep theirs). Existing invoices were numbered by the migration in creation order.
+- Also `currency` (ISO code, default `USD`), `legalTerms` and `deliverables` (free text).
+- **Snapshot:** the business profile and the client's details are copied onto the invoice (`businessSnapshot`, `clientSnapshot`). They're refreshed whenever the invoice is edited while still Assigned, and frozen once the client accepts, so the accepted invoice keeps what they agreed to.
+- **What can change when:** line items, adjustment and currency only while the invoice is Assigned (409 after). As before, `totalAmount` (for invoices without lines) and the deposit can still be edited later.
+- The PDF shows the number, business header, client, lines, subtotal, adjustment, totals, deliverables and terms.
+
 ## Business profile, rate card and equipment (BE-07)
 
 - **Business profile** fields live on the organization and are edited with `PATCH /organizations/{id}`: `orgAddress`, `orgPhone`, `orgEin` (stored as `12-3456789`), `orgCountry` (two-letter code, stored uppercase), `orgLogoUrl` (a link for now; uploads come with file storage, BE-20), `orgSocials` (`{"instagram": "https://..."}`) and `orgWebsites` (a list). URLs must be http(s). `orgName` is the business name.
