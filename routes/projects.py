@@ -16,7 +16,9 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models import Project, User, Invoice
 from schemas.project import FollowUpCreate, ProjectOut, ProjectCreate, ProjectUpdate
+from schemas.project_includes import ProjectWithIncludesOut
 from schemas.timeline import TimelineEntryOut
+from services.project_includes import INCLUDES, parse_includes, with_includes
 from services.timeline import describe_payment, project_timeline_query, record_follow_up
 from database import get_db
 from auth.dependencies import (
@@ -46,7 +48,12 @@ PROJECT_SORTS = {
 ProjectStatus = ProjectOut.model_fields["projectStatus"].annotation
 
 
-def _list_projects(db, stmt, listing, status, start_from, start_to, search):
+IncludeParam = Query(
+    None, description=f"comma-separated, any of: {', '.join(INCLUDES)}"
+)
+
+
+def _list_projects(db, stmt, listing, status, start_from, start_to, search, include, current_user):
     if status is not None:
         stmt = stmt.where(Project.projectStatus == status)
     if start_from is not None:
@@ -55,16 +62,20 @@ def _list_projects(db, stmt, listing, status, start_from, start_to, search):
         stmt = stmt.where(Project.projectStartDate <= start_to)
     if search:
         stmt = stmt.where(Project.projectName.ilike(f"%{search}%"))
-    return paginate(db, stmt, listing, PROJECT_SORTS, "-createdAt", Project.projectId)
+    includes = parse_includes(include)
+    page = paginate(db, stmt, listing, PROJECT_SORTS, "-createdAt", Project.projectId)
+    page["items"] = with_includes(db, page["items"], includes, current_user)
+    return page
 
 
-@router.get("/projects", response_model=Page[ProjectOut])
+@router.get("/projects", response_model=Page[ProjectWithIncludesOut])
 def get_projects(
     listing: Listing,
     status: ProjectStatus | None = None,
     start_from: datetime | None = Query(None, alias="startFrom"),
     start_to: datetime | None = Query(None, alias="startTo"),
     search: str | None = Query(None, description="part of the project name"),
+    include: str | None = IncludeParam,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -75,7 +86,9 @@ def get_projects(
         stmt = projects_in_org_query(current_user.userOrg)
     else:
         stmt = projects_for_user_query(current_user.userId)
-    return _list_projects(db, stmt, listing, status, start_from, start_to, search)
+    return _list_projects(
+        db, stmt, listing, status, start_from, start_to, search, include, current_user
+    )
 
 
 @router.post(
@@ -124,7 +137,7 @@ def set_project_final_invoice(
     return updated_project
 
 
-@router.get("/users/{user_id}/projects", response_model=Page[ProjectOut])
+@router.get("/users/{user_id}/projects", response_model=Page[ProjectWithIncludesOut])
 def getProjectsByUserID(
     user_id: UUID,
     listing: Listing,
@@ -132,6 +145,7 @@ def getProjectsByUserID(
     start_from: datetime | None = Query(None, alias="startFrom"),
     start_to: datetime | None = Query(None, alias="startTo"),
     search: str | None = Query(None, description="part of the project name"),
+    include: str | None = IncludeParam,
     db: Session = Depends(get_db),
     user: User = Depends(load_user_in_org),
     current_user: User = Depends(get_current_user),
@@ -144,12 +158,15 @@ def getProjectsByUserID(
         "cannot view another user's projects",
     )
     stmt = projects_for_user_query(user_id)
-    return _list_projects(db, stmt, listing, status, start_from, start_to, search)
+    return _list_projects(
+        db, stmt, listing, status, start_from, start_to, search, include, current_user
+    )
 
 
-@router.get("/projects/{project_id}", response_model=ProjectOut)
+@router.get("/projects/{project_id}", response_model=ProjectWithIncludesOut)
 def getProjectById(
     project_id: UUID,
+    include: str | None = IncludeParam,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     project: Project = Depends(load_project_in_org),
@@ -164,7 +181,8 @@ def getProjectById(
         db,
         "not authorized to view this project",
     )
-    return project_info
+    [with_extras] = with_includes(db, [project_info], parse_includes(include), current_user)
+    return with_extras
 
 
 @router.post(

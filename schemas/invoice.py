@@ -7,7 +7,10 @@ from typing import Literal
 from schemas.project import ProjectOut
 
 
-class InvoiceOut(BaseModel):
+class InvoiceSummaryOut(BaseModel):
+    """An invoice without its project: for lists nested inside a project
+    (GET /projects?include=invoices), where the project would only repeat."""
+
     invoiceId: UUID
     invoiceStatus: Literal["Assigned", "Accepted", "Paid", "Declined"]
     invoiceAmount: Decimal
@@ -16,7 +19,6 @@ class InvoiceOut(BaseModel):
     invoiceAssignedTo: UUID
     projectAssociatedTo: UUID
     subprojectId: UUID | None = None
-    project: ProjectOut
     createdAt: datetime
     updatedAt: datetime
     dueDate: datetime | None = None
@@ -28,6 +30,10 @@ class InvoiceOut(BaseModel):
     @field_serializer("invoiceAmount", "totalAmount", "depositPercentage", when_used="json")
     def _decimal_as_number(self, value: Decimal | None) -> float | None:
         return None if value is None else float(value)
+
+
+class InvoiceOut(InvoiceSummaryOut):
+    project: ProjectOut
 
 
 class InvoiceCreate(BaseModel):

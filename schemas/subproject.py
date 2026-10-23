@@ -7,7 +7,10 @@ from models.choices import Diet, EventType, Religion, ServiceStyle, Venue
 from schemas.project import ProjectOut
 
 
-class SubprojectOut(BaseModel):
+class SubprojectSummaryOut(BaseModel):
+    """An event without its project: for lists nested inside a project
+    (GET /projects?include=subprojects), where the project would only repeat."""
+
     subprojectId: UUID
     subprojectName: str
     projectAssociatedTo: UUID
@@ -26,7 +29,6 @@ class SubprojectOut(BaseModel):
     allergies: list[str] = []
     theme: str | None = None
     themeNotes: str | None = None
-    project: ProjectOut
     effectiveTimezone: str
     # subprojectDate shown in the venue's timezone
     localSubprojectDate: datetime
@@ -40,6 +42,10 @@ class SubprojectOut(BaseModel):
     @field_serializer("minPricePerPerson", "maxPricePerPerson", when_used="json")
     def _decimal_as_number(self, value: Decimal | None) -> float | None:
         return None if value is None else float(value)
+
+
+class SubprojectOut(SubprojectSummaryOut):
+    project: ProjectOut
 
 
 class SubprojectCreate(BaseModel):
