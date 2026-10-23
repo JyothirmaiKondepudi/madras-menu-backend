@@ -1,212 +1,201 @@
-"""
-Real, reusable CRUD for the tree — insert / update / delete a single
-parent_of edge, each going through the same validation every time instead
-of a fresh ad-hoc script per batch (which is what every batch so far
-actually did, and how the tracking-file drift bug happened: the
-diff/insert logic was hand-rolled each round instead of being one tested
-function).
+"""Changes to the dish hierarchy: parent_of edges between menu items.
 
-These operate directly against the database (psycopg2), not against a
-proposals JSON file — the database is the only source of truth here,
-which is also the fix for the drift bug: nothing needs a separate
-"tracking file" kept in sync by hand anymore.
+Every change runs in the caller's session and transaction (the route commits),
+and first takes a transaction-scoped advisory lock on the hierarchy. Without
+it, two requests could each pass the loop check before the other saved
+(A under B, and B under A, at the same moment) and together create a loop.
+With it, the second waits for the first to commit and then checks against the
+saved tree. Hierarchy edits are rare, so waiting costs nothing noticeable.
 """
 
-import psycopg2
+from uuid import UUID
+
+from sqlalchemy import delete, exists, select, text, update
+from sqlalchemy.orm import Session
+
+from models import ItemRelationship, MenuItem
+
+# The only relationship type so far. The database also restricts it (a CHECK
+# constraint), and the one-parent-per-child index only covers this type.
+RELATIONSHIP_TYPES = ("parent_of",)
 
 
 class HierarchyError(Exception):
-    """Raised when a mutation would violate the tree's rules — never let
-    these fall through as a raw IntegrityError from Postgres."""
+    """Raised when a change would break the tree's rules."""
 
 
-def _item_exists(cur, item_id: str) -> bool:
-    cur.execute("SELECT 1 FROM menu_items WHERE id = %s", (item_id,))
-    return cur.fetchone() is not None
+def _lock_hierarchy(db: Session) -> None:
+    """Serializes hierarchy changes until this transaction ends."""
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext('item_relationships'))"))
 
 
-def _existing_parent(cur, child_id: str, relationship_type: str = "parent_of") -> str | None:
-    cur.execute(
-        "SELECT to_item_id FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",
-        (child_id, relationship_type),
+def _check_type(relationship_type: str) -> None:
+    if relationship_type not in RELATIONSHIP_TYPES:
+        raise HierarchyError(f"unknown relationship type {relationship_type!r}")
+
+
+def _item_exists(db: Session, item_id: UUID) -> bool:
+    return db.scalar(select(exists().where(MenuItem.id == item_id)))
+
+
+def _edge(db: Session, child_id: UUID, relationship_type: str) -> ItemRelationship | None:
+    return db.scalars(
+        select(ItemRelationship).where(
+            ItemRelationship.fromItemId == child_id,
+            ItemRelationship.relationshipType == relationship_type,
+        )
+    ).first()
+
+
+def _is_ancestor(db: Session, candidate: UUID, of_item: UUID, relationship_type: str) -> bool:
+    """True if `candidate` is somewhere above `of_item` in the tree. One
+    recursive query rather than one query per level; UNION (not UNION ALL)
+    drops repeats, so it stops even if the data already holds a loop."""
+    ancestors = (
+        select(ItemRelationship.toItemId.label("item_id"))
+        .where(
+            ItemRelationship.fromItemId == of_item,
+            ItemRelationship.relationshipType == relationship_type,
+        )
+        .cte("ancestors", recursive=True)
     )
-    row = cur.fetchone()
-    return row[0] if row else None
+    ancestors = ancestors.union(
+        select(ItemRelationship.toItemId).where(
+            ItemRelationship.fromItemId == ancestors.c.item_id,
+            ItemRelationship.relationshipType == relationship_type,
+        )
+    )
+    return db.scalar(select(exists().where(ancestors.c.item_id == candidate)))
 
 
-def _would_create_cycle(cur, child_id: str, new_parent_id: str, relationship_type: str = "parent_of") -> bool:
-    """Walk new_parent_id's own ancestor chain — if child_id shows up
-    anywhere in it, accepting this edge would create a cycle. Mirrors
-    validate.py's _find_cycle, but reads the live DB instead of an
-    in-memory proposals dict."""
-    current = new_parent_id
-    seen = set()
-    for _ in range(10_000):  # generous bound; a real cycle would be caught long before this
-        if current == child_id:
-            return True
-        if current in seen:
-            return False  # a pre-existing cycle elsewhere, not one this edge creates
-        seen.add(current)
-        current = _existing_parent(cur, current, relationship_type)
-        if current is None:
-            return False  # reached a root — no cycle
-    return True  # exceeded bound — treat as a cycle to be safe
-
-
-def insert_edge(
-    cur,
-    child_id: str,
-    parent_id: str,
-    relationship_type: str = "parent_of",
-    confidence: str | None = None,
-    reason: str | None = None,
-) -> str:
-    """Add a NEW edge. Raises HierarchyError if child/parent don't exist,
-    child would be its own parent, this would create a cycle, or the
-    child already has an edge of this relationship_type (use update_edge
-    for that — this is insert, not upsert, on purpose, so a caller can't
-    silently overwrite an existing classification by accident).
-    Returns the new edge's id."""
-    if not _item_exists(cur, child_id):
+def _validate_link(db: Session, child_id: UUID, parent_id: UUID, relationship_type: str) -> None:
+    _check_type(relationship_type)
+    if not _item_exists(db, child_id):
         raise HierarchyError(f"child_id {child_id} does not exist in menu_items")
-    if not _item_exists(cur, parent_id):
+    if not _item_exists(db, parent_id):
         raise HierarchyError(f"parent_id {parent_id} does not exist in menu_items")
     if child_id == parent_id:
         raise HierarchyError("an item cannot be its own parent")
-    if _existing_parent(cur, child_id, relationship_type) is not None:
-        raise HierarchyError(
-            f"{child_id} already has a {relationship_type!r} edge — use update_edge to change it, not insert_edge"
-        )
-    if _would_create_cycle(cur, child_id, parent_id, relationship_type):
+    # the child's own edge doesn't matter here: linking makes a loop only if
+    # the child is already above the new parent
+    if _is_ancestor(db, child_id, parent_id, relationship_type):
         raise HierarchyError(f"linking {child_id} -> {parent_id} would create a cycle")
 
-    cur.execute(
-        """
-        INSERT INTO item_relationships (id, from_item_id, to_item_id, relationship_type, metadata)
-        VALUES (gen_random_uuid(), %s, %s, %s, %s)
-        RETURNING id
-        """,
-        (child_id, parent_id, relationship_type, _metadata_json(confidence, reason)),
-    )
-    return cur.fetchone()[0]
+
+def _metadata(confidence: str | None, reason: str | None) -> dict | None:
+    if confidence is None and reason is None:
+        return None
+    return {"confidence": confidence, "reason": reason}
 
 
-def update_edge(
-    cur,
-    child_id: str,
-    new_parent_id: str,
+def insert_edge(
+    db: Session,
+    child_id: UUID,
+    parent_id: UUID,
     relationship_type: str = "parent_of",
     confidence: str | None = None,
     reason: str | None = None,
-) -> str:
-    """Reclassify: change child_id's existing edge to point at
-    new_parent_id instead (this is exactly the operation every
-    "Basmati Pilaf", "Bombay Sandwiches", etc. reclassification in this
-    project's history actually needed — previously done by hand each
-    time). Works whether or not child_id already had an edge. Returns the
-    edge's id."""
-    if not _item_exists(cur, child_id):
-        raise HierarchyError(f"child_id {child_id} does not exist in menu_items")
-    if not _item_exists(cur, new_parent_id):
-        raise HierarchyError(f"new_parent_id {new_parent_id} does not exist in menu_items")
-    if child_id == new_parent_id:
-        raise HierarchyError("an item cannot be its own parent")
-
-    # Temporarily remove the old edge before the cycle check, so
-    # reclassifying to the same neighborhood isn't falsely rejected as a
-    # cycle against itself.
-    cur.execute(
-        "DELETE FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",
-        (child_id, relationship_type),
+) -> ItemRelationship:
+    """Add a new edge. Raises HierarchyError if child/parent don't exist, the
+    child would be its own parent, this would create a cycle, or the child
+    already has an edge of this type (use update_edge to change it)."""
+    _lock_hierarchy(db)
+    _validate_link(db, child_id, parent_id, relationship_type)
+    if _edge(db, child_id, relationship_type) is not None:
+        raise HierarchyError(
+            f"{child_id} already has a {relationship_type!r} edge — use update_edge to change it, not insert_edge"
+        )
+    edge = ItemRelationship(
+        fromItemId=child_id,
+        toItemId=parent_id,
+        relationshipType=relationship_type,
+        relationshipMetadata=_metadata(confidence, reason),
     )
-    if _would_create_cycle(cur, child_id, new_parent_id, relationship_type):
-        raise HierarchyError(f"linking {child_id} -> {new_parent_id} would create a cycle")
+    db.add(edge)
+    db.flush()
+    return edge
 
-    cur.execute(
-        """
-        INSERT INTO item_relationships (id, from_item_id, to_item_id, relationship_type, metadata)
-        VALUES (gen_random_uuid(), %s, %s, %s, %s)
-        RETURNING id
-        """,
-        (child_id, new_parent_id, relationship_type, _metadata_json(confidence, reason)),
+
+def update_edge(
+    db: Session,
+    child_id: UUID,
+    new_parent_id: UUID,
+    relationship_type: str = "parent_of",
+    confidence: str | None = None,
+    reason: str | None = None,
+) -> ItemRelationship:
+    """Reclassify: point child_id at new_parent_id instead, whether or not it
+    already had a parent. The edge keeps its id when it already existed."""
+    _lock_hierarchy(db)
+    _validate_link(db, child_id, new_parent_id, relationship_type)
+    edge = _edge(db, child_id, relationship_type)
+    if edge is None:
+        edge = ItemRelationship(fromItemId=child_id, relationshipType=relationship_type)
+        db.add(edge)
+    edge.toItemId = new_parent_id
+    edge.relationshipMetadata = _metadata(confidence, reason)
+    db.flush()
+    return edge
+
+
+def delete_edge(db: Session, child_id: UUID, relationship_type: str = "parent_of") -> bool:
+    """Remove child_id's edge, making it a root again. True if one was removed."""
+    _check_type(relationship_type)
+    _lock_hierarchy(db)
+    result = db.execute(
+        delete(ItemRelationship).where(
+            ItemRelationship.fromItemId == child_id,
+            ItemRelationship.relationshipType == relationship_type,
+        )
     )
-    return cur.fetchone()[0]
+    return result.rowcount > 0
 
 
-def delete_node(cur, item_id: str, relationship_type: str = "parent_of") -> dict:
-    """
-    Delete an entire dish from the tree (not just one edge) — removes its
-    own parent edge, if any, AND reparents every one of its children to
-    ITS parent (grandparent-of-the-deleted-node), rather than cascading
-    to delete the whole subtree or refusing outright.
+def delete_node(db: Session, item_id: UUID, relationship_type: str = "parent_of") -> dict:
+    """Remove item_id from the tree: its children move up to its own parent
+    (or become roots if it had none) instead of being deleted or orphaned.
+    Relies on edges meaning "is a more specific variant of": skipping the
+    removed dish one level is still accurate for that relationship. No loop
+    check is needed, since moving a child to its grandparent can't make one.
 
-    This is a deliberate choice, not a universal rule: it relies on our
-    edges meaning "is a more specific variant of," where skipping a
-    deleted intermediate dish and pointing its children one level higher
-    is still a true (if less precise) statement — e.g. if `Basmati Pilaf`
-    is deleted, `Basmati Peas Pilaf -> Basmati rice` is still accurate.
-    That property doesn't hold for every kind of tree (a filesystem path
-    or an org chart doesn't reparent this way), so don't reuse this
-    function's behavior as a general pattern without re-checking that
-    assumption holds for whatever the tree represents.
-
-    Does NOT delete the menu_items row itself — this only removes it from
-    the hierarchy; deleting the actual dish record is a separate concern
-    the caller can layer on top of this (or not) as it sees fit.
+    Does not delete the menu_items row itself, only its place in the tree.
 
     Returns {"parent_id": <id or None>, "reparented_children": [<ids>]}.
     """
-    parent_id = _existing_parent(cur, item_id, relationship_type)
-    cur.execute(
-        "SELECT from_item_id FROM item_relationships WHERE to_item_id = %s AND relationship_type = %s",
-        (item_id, relationship_type),
-    )
-    child_ids = [row[0] for row in cur.fetchall()]
-
-    # Remove the deleted node's own edge (if it had a parent).
-    cur.execute(
-        "DELETE FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",
-        (item_id, relationship_type),
-    )
-
-    reparented = []
-    if parent_id is not None:
-        # This node was itself a child — reattach its children to ITS
-        # parent (the grandparent), preserving them as roots only if the
-        # deleted node had no parent of its own (handled by the else
-        # branch below implicitly, since update_edge only runs here).
-        for child_id in child_ids:
-            update_edge(
-                cur, child_id, parent_id, relationship_type,
-                reason=f"reparented one level up after its direct parent was deleted from the tree",
+    _check_type(relationship_type)
+    _lock_hierarchy(db)
+    own_edge = _edge(db, item_id, relationship_type)
+    parent_id = own_edge.toItemId if own_edge is not None else None
+    child_ids = list(
+        db.scalars(
+            select(ItemRelationship.fromItemId).where(
+                ItemRelationship.toItemId == item_id,
+                ItemRelationship.relationshipType == relationship_type,
             )
-            reparented.append(child_id)
-    # else: the deleted node was itself a root — its children simply
-    # become new roots (delete_edge below already removed any edge they
-    # might have had FROM the deleted node; nothing more to do, since
-    # there's no grandparent to reattach them to).
-    else:
-        for child_id in child_ids:
-            delete_edge(cur, child_id, relationship_type)
-            reparented.append(child_id)
-
-    return {"parent_id": parent_id, "reparented_children": reparented}
-
-
-def delete_edge(cur, child_id: str, relationship_type: str = "parent_of") -> bool:
-    """Remove child_id's edge, making it a root again. Returns True if a
-    row was actually deleted, False if it had no such edge to begin with
-    (not an error — deleting something already absent is a no-op)."""
-    cur.execute(
-        "DELETE FROM item_relationships WHERE from_item_id = %s AND relationship_type = %s",
-        (child_id, relationship_type),
+        )
     )
-    return cur.rowcount > 0
 
-
-def _metadata_json(confidence: str | None, reason: str | None) -> str | None:
-    import json
-
-    if confidence is None and reason is None:
-        return None
-    return json.dumps({"confidence": confidence, "reason": reason})
+    if own_edge is not None:
+        db.delete(own_edge)
+    children = (ItemRelationship.toItemId == item_id) & (
+        ItemRelationship.relationshipType == relationship_type
+    )
+    if parent_id is not None:
+        db.execute(
+            update(ItemRelationship)
+            .where(children)
+            .values(
+                toItemId=parent_id,
+                relationshipMetadata=_metadata(
+                    None,
+                    "reparented one level up after its direct parent was deleted from the tree",
+                ),
+            )
+        )
+    else:
+        # the removed dish was a root, so its children become roots
+        db.execute(delete(ItemRelationship).where(children))
+    db.flush()
+    # the bulk statements bypassed any copies of these rows already loaded
+    db.expire_all()
+    return {"parent_id": parent_id, "reparented_children": child_ids}
