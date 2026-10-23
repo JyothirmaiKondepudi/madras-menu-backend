@@ -60,3 +60,72 @@ def test_deleting_user_keeps_their_logs(client, engine, vendor_auth_headers, tes
     assert client.delete(f"/users/{client_id}", headers=vendor_auth_headers).status_code == 204
     [log] = _logs(engine, f"/users/{client_id}")[:1]
     assert log["user_id"] is None
+
+
+# --- BE-24: the log is written after the response, not before -------------------
+
+
+def _request(path="/api/v1/projects"):
+    from starlette.requests import Request
+
+    return Request({
+        "type": "http", "method": "GET", "path": path, "raw_path": path.encode(),
+        "query_string": b"", "headers": [], "client": ("127.0.0.1", 5000),
+        "server": ("testserver", 80), "scheme": "http", "root_path": "", "state": {},
+    })
+
+
+def _run_middleware(monkeypatch, call_next):
+    """Runs the logging middleware by itself. Returns (response, rows logged
+    by the time the response was ready, rows logged after its background ran)."""
+    import asyncio
+
+    import main
+
+    written = []
+    monkeypatch.setattr(main, "record_api_log", lambda **fields: written.append(fields))
+
+    async def run():
+        response = await main.log_api_activity(_request(), call_next)
+        before = list(written)
+        await response.background()
+        return response, before, list(written)
+
+    return asyncio.run(run())
+
+
+def test_log_is_written_after_the_response_is_ready(monkeypatch):
+    from starlette.responses import PlainTextResponse
+
+    async def call_next(request):
+        return PlainTextResponse("ok")
+
+    response, before, after = _run_middleware(monkeypatch, call_next)
+    assert before == []  # nothing written while the response was being produced
+    [row] = after
+    assert row["statusCode"] == 200
+    assert str(row["requestId"]) == response.headers["X-Request-ID"]
+
+
+def test_a_routes_own_background_work_still_runs(monkeypatch):
+    from starlette.background import BackgroundTask
+    from starlette.responses import PlainTextResponse
+
+    ran = []
+
+    async def call_next(request):
+        return PlainTextResponse("ok", background=BackgroundTask(lambda: ran.append("route task")))
+
+    _, _, after = _run_middleware(monkeypatch, call_next)
+    assert ran == ["route task"]
+    assert len(after) == 1
+
+
+def test_unhandled_error_is_still_logged_as_a_500(monkeypatch):
+    async def call_next(request):
+        raise RuntimeError("boom")
+
+    response, before, after = _run_middleware(monkeypatch, call_next)
+    assert response.status_code == 500 and before == []
+    [row] = after
+    assert row["statusCode"] == 500 and "boom" in row["error"]
