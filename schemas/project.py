@@ -44,16 +44,22 @@ class ProjectOut(BaseModel):
         return handler(clients)
 
 
-class ProjectCreate(BaseModel):
+class ProjectFields(BaseModel):
+    """Project fields shared by ProjectCreate and the new-project request
+    (schemas/project_creation.py), where the vendor is optional."""
+
     projectName: str
     projectStatus: Literal[
         "Proposal", "Accepted", "Rejected", "Suggested Changes", "Planning", "Complete"
     ]
     projectStartDate: datetime
     projectEndDate: datetime
-    vendorOnProject: UUID
     # venue timezone when it isn't the org's; times without an offset are read in it
     projectTimezone: IanaTimezone | None = None
+
+
+class ProjectCreate(ProjectFields):
+    vendorOnProject: UUID
 
 
 class ProjectUpdate(BaseModel):

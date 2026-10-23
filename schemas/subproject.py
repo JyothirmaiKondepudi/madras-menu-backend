@@ -7,6 +7,29 @@ from models.choices import Diet, EventType, Religion, ServiceStyle, Venue
 from schemas.project import ProjectOut
 
 
+class SubprojectFields(BaseModel):
+    """Subproject fields shared by SubprojectCreate and the new-project
+    request (schemas/project_creation.py), which creates the project in the
+    same call and so can't send projectAssociatedTo."""
+
+    subprojectName: str
+    cuisine: list[str] = Field(default=[])
+    religion: Religion | None = None
+    subprojectDate: datetime
+    guestCount: int
+    subprojectType: ServiceStyle
+    subprojectVenue: Venue
+    subprojectEvent: EventType
+    minPricePerPerson: Decimal | None = None
+    maxPricePerPerson: Decimal | None = None
+    venueName: str | None = None
+    venueAddress: str | None = None
+    diet: list[Diet] = Field(default_factory=list)
+    allergies: list[str] = Field(default_factory=list)
+    theme: str | None = None
+    themeNotes: str | None = None
+
+
 class SubprojectSummaryOut(BaseModel):
     """An event without its project: for lists nested inside a project
     (GET /projects?include=subprojects), where the project would only repeat."""
@@ -48,24 +71,8 @@ class SubprojectOut(SubprojectSummaryOut):
     project: ProjectOut
 
 
-class SubprojectCreate(BaseModel):
-    subprojectName: str
+class SubprojectCreate(SubprojectFields):
     projectAssociatedTo: UUID
-    cuisine: list[str] = Field(default=[])
-    religion: Religion | None = None
-    subprojectDate: datetime
-    guestCount: int
-    subprojectType: ServiceStyle
-    subprojectVenue: Venue
-    subprojectEvent: EventType
-    minPricePerPerson: Decimal | None = None
-    maxPricePerPerson: Decimal | None = None
-    venueName: str | None = None
-    venueAddress: str | None = None
-    diet: list[Diet] = Field(default_factory=list)
-    allergies: list[str] = Field(default_factory=list)
-    theme: str | None = None
-    themeNotes: str | None = None
 
 
 class SubprojectUpdate(BaseModel):

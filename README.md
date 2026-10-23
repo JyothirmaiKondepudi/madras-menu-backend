@@ -34,6 +34,15 @@ Every API request except the health checks gets one `api_logs` row: method, path
 - **`GET /projects/{id}/activity`** is the project's timeline, newest first and paged like every list: `account_activity` rows (project created, invoice accepted, followed up, ...) and payment events from `billing_history`, merged in one query (`services/timeline.py`) so paging works across both. Each entry has `kind` (`activity` or `payment`), `type`, `description`, `occurredAt`, and for payments `amount` and `voidedAt`. Vendor-only for now, because it includes internal entries (deleted invoices, void reasons); what clients may see is part of BE-12.
 - **`POST /projects/{id}/follow-ups`** with `{"note": "...", "nextFollowUpAt": "..."}` records a follow-up: a `followed_up` timeline entry, `lastFollowedUpAt` set to now, and `nextFollowUpAt` set to the given date (or cleared if left out). `PATCH /projects/{id}` with `nextFollowUpAt` reschedules without recording a follow-up. Times without an offset are read in the venue's timezone, like project dates. Sending the follow-up email itself is BE-18.
 
+## Creating a whole project in one call (BE-06)
+
+`POST /projects/full` takes what the project wizard collects and creates it **in one transaction**: `client` (found by email, or created), `project`, `subprojects` (a list) and an optional `invoice`. If any part fails, nothing is saved. It returns the new project with its client, subprojects, invoices and billing included.
+
+- The parts are the usual create bodies without the ids the server fills in (`schemas/project_creation.py`). `vendorOnProject` is optional and defaults to the caller.
+- The invoice points at one of the request's subprojects by its position in the list, `subprojectIndex` (0 = the first); leave it out for a project-level invoice such as a deposit. An index past the list is a 422.
+- **The client's email:** an existing client in the caller's organization is reused, and their saved details aren't changed; a user in another organization, or a staff account, is a 409.
+- Each step calls the same service as its own endpoint, so the same rules, notifications and timeline entries apply (`services/project_creation.py`).
+
 ## The invoice document (BE-04)
 
 - **Line items:** create an invoice with `lineItems` (each `kind` = `service`, `equipment` or `custom`, a `quantity`, and either a `sourceId` from the rate card / equipment list or a `name` and `unitPrice`), or, for an invoice with no breakdown, a single `totalAmount`; not both. Catalog lines copy the name and price (they can be overridden), so later catalog edits don't change invoices already written.

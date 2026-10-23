@@ -92,7 +92,11 @@ class InvoiceOut(InvoiceSummaryOut):
     clientSnapshot: dict | None = None
 
 
-class InvoiceCreate(BaseModel):
+class InvoiceFields(BaseModel):
+    """Invoice fields shared by InvoiceCreate and the new-project request
+    (schemas/project_creation.py), which creates the project, client and
+    subprojects in the same call and so can't send their ids."""
+
     # no invoiceStatus: new invoices are always Assigned (services/invoice_status.py)
     # invoiceAmount isn't sent: it's totalAmount * depositPercentage / 100.
     # Send lineItems (totalAmount is then computed from them) or, for a single
@@ -104,11 +108,7 @@ class InvoiceCreate(BaseModel):
     legalTerms: str | None = None
     deliverables: str | None = None
     depositPercentage: Decimal = Field(gt=0, le=100, max_digits=5, decimal_places=2)
-    invoiceAssignedTo: UUID
-    projectAssociatedTo: UUID
-    subprojectId: UUID | None = None
     dueDate: datetime | None = None
-
 
     @model_validator(mode="after")
     def _total_or_line_items(self):
@@ -122,6 +122,13 @@ class InvoiceCreate(BaseModel):
         if not has_lines and self.adjustmentPercentage is not None:
             raise ValueError("adjustmentPercentage applies to line items")
         return self
+
+
+class InvoiceCreate(InvoiceFields):
+    invoiceAssignedTo: UUID
+    projectAssociatedTo: UUID
+    subprojectId: UUID | None = None
+
 
 class InvoiceUpdate(BaseModel):
     # no invoiceStatus: it only changes through accept, reject and payments
