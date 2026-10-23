@@ -127,9 +127,16 @@ def test_org_with_users_cannot_be_deleted(client, engine, test_user, platform_ad
 
 # --- users ----------------------------------------------------------------
 
-def test_vendor_on_a_project_cannot_be_deleted(client, test_project, test_user, vendor_auth_headers):
-    # test_project names test_user as its vendor
-    resp = client.delete(f"/users/{test_user['userId']}", headers=vendor_auth_headers)
+def test_vendor_on_a_project_cannot_be_deleted(client, test_project, vendor_auth_headers):
+    # a second vendor in the org takes over test_project
+    vendor = client.post("/users", json={
+        "fullName": "Second Vendor", "email": "second.vendor@example.com", "role": "vendor",
+    }, headers=vendor_auth_headers).json()
+    resp = client.patch(f"/projects/{test_project['projectId']}",
+                        json={"vendorOnProject": vendor["userId"]}, headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+
+    resp = client.delete(f"/users/{vendor['userId']}", headers=vendor_auth_headers)
     assert resp.status_code == 409
     assert "disable" in resp.json()["detail"].lower()
 

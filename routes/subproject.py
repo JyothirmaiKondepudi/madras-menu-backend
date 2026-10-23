@@ -96,8 +96,6 @@ def get_subproject_by_id(
     current_user: User = Depends(get_current_user),
     sub_project: Subproject = Depends(load_subproject_in_org),
 ):
-    if sub_project is None:
-        raise HTTPException(status_code=404, detail="subproject not found")
     ensure_project_access(
         current_user,
         sub_project.projectAssociatedTo,

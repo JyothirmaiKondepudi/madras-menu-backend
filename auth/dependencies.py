@@ -91,6 +91,23 @@ def load_user_in_org(
     return user
 
 
+
+# who can be a project's vendor (vendorOnProject)
+PROJECT_VENDOR_ROLES = ("vendor", "platform_admin")
+
+
+def load_vendor_in_org(user_id: UUID, current_user: User, db: Session) -> User:
+    """A user who can be a project's vendor: in the caller's organization
+    (404 otherwise, like load_user_in_org) and a vendor or platform admin
+    (422 otherwise: a client can't run a project)."""
+    user = load_user_in_org(user_id, current_user, db)
+    if user.userRole not in PROJECT_VENDOR_ROLES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"vendorOnProject must be a vendor; this user is a {user.userRole}.",
+        )
+    return user
+
 def load_subproject_in_org(
     subproject_id: UUID,
     current_user: User = Depends(get_current_user),

@@ -189,13 +189,13 @@ def test_user(client, vendor_auth_headers):
 
 
 @pytest.fixture()
-def test_project(client, test_user, vendor_auth_headers):
+def test_project(test_vendor_login, client, test_user, vendor_auth_headers):
     resp = client.post("/projects", json={
         "projectName": "Test Project",
         "projectStatus": "Proposal",
         "projectStartDate": "2026-11-01T18:00:00",
         "projectEndDate": "2026-11-01T23:00:00",
-        "vendorOnProject": test_user["userId"],
+        "vendorOnProject": test_vendor_login["userId"],
     }, headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     # clients are linked after creation, via user_projects

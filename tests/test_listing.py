@@ -92,14 +92,14 @@ def test_sorting_by_an_unknown_field_is_rejected(client, vendor_auth_headers):
 # --- filters -------------------------------------------------------------------
 
 
-def test_project_filters(client, test_user, vendor_auth_headers):
+def test_project_filters(test_vendor_login, client, test_user, vendor_auth_headers):
     def project(name, status, start):
         return client.post("/projects", json={
             "projectName": name,
             "projectStatus": status,
             "projectStartDate": start,
             "projectEndDate": start,
-            "vendorOnProject": test_user["userId"],
+            "vendorOnProject": test_vendor_login["userId"],
         }, headers=vendor_auth_headers).json()["projectId"]
 
     gala = project("Spring Gala", "Accepted", "2027-03-01T18:00:00")

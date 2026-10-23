@@ -23,10 +23,6 @@ def users_in_org_query(org_id: UUID):
     return select(User).where(User.userOrg == org_id)
 
 
-def get_user_by_user_id(user_id, db: Session):
-    return db.get(User, user_id)
-
-
 def get_user_by_email(email, db: Session):
     # Case-insensitive, like the duplicate check in add_new_user and the
     # unique index on lower(email): login shouldn't fail just because a

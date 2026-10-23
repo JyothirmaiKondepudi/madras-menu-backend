@@ -8,7 +8,6 @@ from services.projects import (
     projects_for_user_query,
     projects_in_org_query,
     get_invoice_count,
-    get_project_by_id,
     get_sub_project_count,
     set_final_invoice,
     update_project_by_project_id,
@@ -34,6 +33,7 @@ from auth.dependencies import (
     load_invoice_in_org,
     load_project_in_org,
     load_user_in_org,
+    load_vendor_in_org,
     require_permission,
     user_has_permission,
 )
@@ -178,9 +178,6 @@ def getProjectById(
     current_user: User = Depends(get_current_user),
     project: Project = Depends(load_project_in_org),
 ):
-    project_info = get_project_by_id(project_id, db)
-    if project_info is None:
-        raise HTTPException(status_code=404, detail="project not found")
     ensure_project_access(
         current_user,
         project_id,
@@ -188,7 +185,7 @@ def getProjectById(
         db,
         "not authorized to view this project",
     )
-    [with_extras] = with_includes(db, [project_info], parse_includes(include), current_user)
+    [with_extras] = with_includes(db, [project], parse_includes(include), current_user)
     return with_extras
 
 
@@ -202,7 +199,7 @@ def add_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    load_user_in_org(new_project.vendorOnProject, current_user, db)
+    load_vendor_in_org(new_project.vendorOnProject, current_user, db)
     created_project = add_new_Project(
         new_project,
         db,
@@ -228,7 +225,7 @@ def update_project(
     project: Project = Depends(load_project_in_org),
 ):
     if updates.vendorOnProject is not None:
-        load_user_in_org(updates.vendorOnProject, current_user, db)
+        load_vendor_in_org(updates.vendorOnProject, current_user, db)
     updated_project = update_project_by_project_id(project_id, updates, db)
     if updated_project is None:
         raise HTTPException(status_code=404, detail="project not found")
@@ -343,7 +340,7 @@ def create_project_with_details(
     if missing:
         raise HTTPException(status_code=403, detail=f"missing required permission: {', '.join(missing)}")
     if body.project.vendorOnProject is not None:
-        load_user_in_org(body.project.vendorOnProject, current_user, db)
+        load_vendor_in_org(body.project.vendorOnProject, current_user, db)
 
     try:
         project, invoice = create_full_project(body, db, current_user)

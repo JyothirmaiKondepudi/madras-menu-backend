@@ -127,7 +127,7 @@ def test_client_only_gets_invoices_billed_to_them(
     assert len(vendor_view["invoices"]) == 2
 
 
-def test_query_count_does_not_grow_with_the_number_of_projects(
+def test_query_count_does_not_grow_with_the_number_of_projects(test_vendor_login, 
     client, engine, test_user, vendor_auth_headers
 ):
     def queries_for_page():
@@ -145,7 +145,7 @@ def test_query_count_does_not_grow_with_the_number_of_projects(
         return len(statements)
 
     def add_project_with_data(name):
-        project = _project(client, test_user["userId"], vendor_auth_headers, name)
+        project = _project(client, test_vendor_login["userId"], vendor_auth_headers, name)
         _link(client, project["projectId"], test_user["userId"], vendor_auth_headers)
         event_ = _event(client, project["projectId"], vendor_auth_headers)
         invoice = _invoice(client, project["projectId"], test_user["userId"], vendor_auth_headers,

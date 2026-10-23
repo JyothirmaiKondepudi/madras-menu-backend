@@ -1,4 +1,4 @@
-def test_create_project(client, test_user, vendor_auth_headers):
+def test_create_project(test_vendor_login, client, test_user, vendor_auth_headers):
     resp = client.post(
         "/projects",
         json={
@@ -6,7 +6,7 @@ def test_create_project(client, test_user, vendor_auth_headers):
             "projectStatus": "Proposal",
             "projectStartDate": "2026-11-14T18:00:00",
             "projectEndDate": "2026-11-14T23:00:00",
-            "vendorOnProject": test_user["userId"],
+            "vendorOnProject": test_vendor_login["userId"],
         },
         headers=vendor_auth_headers,
     )
@@ -25,7 +25,7 @@ def _invoice_body(project_id, user_id, **overrides):
     return body
 
 
-def test_create_project_requires_vendor(client, test_user, test_client_login):
+def test_create_project_requires_vendor(test_vendor_login, client, test_user, test_client_login):
     login_resp = client.post(
         "/auth/login",
         json={
@@ -42,7 +42,7 @@ def test_create_project_requires_vendor(client, test_user, test_client_login):
             "projectStatus": "Proposal",
             "projectStartDate": "2026-11-14T18:00:00",
             "projectEndDate": "2026-11-14T23:00:00",
-            "vendorOnProject": test_user["userId"],
+            "vendorOnProject": test_vendor_login["userId"],
         },
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -284,8 +284,7 @@ def test_final_invoice_is_saved(client, test_user, test_project, vendor_auth_hea
     assert resp.json()["finalInvoiceId"] == invoice["invoiceId"]
 
 
-def test_set_final_invoice_rejects_invoice_from_another_project(
-    client, test_user, test_project, vendor_auth_headers
+def test_set_final_invoice_rejects_invoice_from_another_project(test_vendor_login, client, test_user, test_project, vendor_auth_headers
 ):
     other_project = client.post(
         "/projects",
@@ -294,7 +293,7 @@ def test_set_final_invoice_rejects_invoice_from_another_project(
             "projectStatus": "Proposal",
             "projectStartDate": "2026-11-14T18:00:00",
             "projectEndDate": "2026-11-14T23:00:00",
-            "vendorOnProject": test_user["userId"],
+            "vendorOnProject": test_vendor_login["userId"],
         },
         headers=vendor_auth_headers,
     ).json()
@@ -345,7 +344,7 @@ def test_set_final_invoice_nonexistent_invoice_404(
     assert resp.status_code == 404
 
 
-def test_project_created_without_clients(client, test_user, vendor_auth_headers):
+def test_project_created_without_clients(test_vendor_login, client, test_user, vendor_auth_headers):
     resp = client.post(
         "/projects",
         json={
@@ -353,7 +352,7 @@ def test_project_created_without_clients(client, test_user, vendor_auth_headers)
             "projectStatus": "Proposal",
             "projectStartDate": "2026-11-14T18:00:00",
             "projectEndDate": "2026-11-14T23:00:00",
-            "vendorOnProject": test_user["userId"],
+            "vendorOnProject": test_vendor_login["userId"],
         },
         headers=vendor_auth_headers,
     )
@@ -496,3 +495,43 @@ def test_other_clients_hidden_inside_invoice_and_subproject_responses(
         clients = resp.json()["project"]["clients"]
         assert [c["userId"] for c in clients] == [test_client_login["userId"]], url
         assert other["userEmail"] not in resp.text, url
+
+
+# --- only a vendor can be a project's vendor -------------------------------------
+
+
+def _project_body(vendor_id):
+    return {
+        "projectName": "Vendor Check", "projectStatus": "Proposal",
+        "projectStartDate": "2026-11-14T18:00:00", "projectEndDate": "2026-11-14T23:00:00",
+        "vendorOnProject": vendor_id,
+    }
+
+
+def test_a_client_cant_be_the_vendor_on_create(client, test_user, vendor_auth_headers):
+    resp = client.post("/projects", json=_project_body(test_user["userId"]), headers=vendor_auth_headers)
+    assert resp.status_code == 422
+    assert "must be a vendor" in resp.json()["detail"]
+
+
+def test_a_client_cant_be_made_the_vendor_on_update(client, test_project, test_user, vendor_auth_headers):
+    resp = client.patch(f"/projects/{test_project['projectId']}",
+                         json={"vendorOnProject": test_user["userId"]}, headers=vendor_auth_headers)
+    assert resp.status_code == 422
+
+
+def test_a_client_cant_be_the_vendor_on_full_create(client, test_user, vendor_auth_headers):
+    resp = client.post("/projects/full", json={
+        "client": {"email": "someone.new@example.com", "fullName": "Someone New"},
+        "project": _project_body(test_user["userId"]),
+    }, headers=vendor_auth_headers)
+    assert resp.status_code == 422
+
+
+def test_another_vendor_in_the_org_can_be_the_vendor(client, vendor_auth_headers):
+    vendor = client.post("/users", json={
+        "fullName": "Second Vendor", "email": "vendor.two@example.com", "role": "vendor",
+    }, headers=vendor_auth_headers).json()
+    resp = client.post("/projects", json=_project_body(vendor["userId"]), headers=vendor_auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["vendorOnProject"] == vendor["userId"]
