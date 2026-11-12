@@ -80,6 +80,74 @@ class PricingUnit(StrEnum):
     TRAY = "tray"
 
 
+class PriceWeight(StrEnum):
+    """A dish's cost class (menu_items.price_weight). Pricing uses it to decide
+    which dishes a tier's base price covers and which carry a surcharge."""
+
+    LIGHT = "light"
+    STANDARD = "standard"
+    PREMIUM = "premium"
+
+
+class PricingMethod(StrEnum):
+    """How a caterer prices. Each method is a calculator in code with its own
+    configuration tables; a caterer picks one per pricing model."""
+
+    TIERED_PER_GUEST = "tiered_per_guest"
+
+
+class PricingModelStatus(StrEnum):
+    """Only a draft is edited; a quote uses the published version."""
+
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    RETIRED = "retired"
+
+
+class TaxMode(StrEnum):
+    PER_DISH_CATEGORY = "per_dish_category"  # each dish's tax_categories rate
+    FLAT_RATE = "flat_rate"  # pricing_policies.flat_tax_percent on the whole quote
+    NONE = "none"
+
+
+class LiveStationDiet(StrEnum):
+    VEG = "veg"
+    NONVEG = "nonveg"
+    BOTH = "both"
+
+
+class QuoteStatus(StrEnum):
+    DRAFT = "draft"
+    SENT = "sent"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    EXPIRED = "expired"
+    SUPERSEDED = "superseded"
+
+
+class QuoteLineKind(StrEnum):
+    BASE = "base"
+    TIER_ADDITION = "tier_addition"
+    DISH_SURCHARGE = "dish_surcharge"
+    ADJUSTMENT = "adjustment"
+    LIVE_STATION = "live_station"
+    RATE_CARD = "rate_card"
+    EQUIPMENT = "equipment"
+    SERVICE_CHARGE = "service_charge"
+    GRATUITY = "gratuity"
+    TAX = "tax"
+    DISCOUNT = "discount"
+    CUSTOM = "custom"
+
+
+class QuoteLineUnit(StrEnum):
+    GUEST = "guest"
+    EVENT = "event"
+    ITEM = "item"
+    HOUR = "hour"
+    TRAY = "tray"
+
+
 def check_in(column: str, choices: type[StrEnum]) -> str:
     """SQL for a CHECK constraint limiting `column` to the enum's values."""
     values = ", ".join(f"'{choice.value}'" for choice in choices)
