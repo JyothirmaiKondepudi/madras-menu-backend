@@ -16,6 +16,14 @@ The new Python backend for Madras Menu Studio's rewrite. The existing app (`madr
 - Menu generation becomes knowledge-graph + embeddings driven (RAG-style), replacing the old app's flat rule-based `MenuGenerator.ts`.
 - Stack: FastAPI (Python), Postgres on GCP (Cloud SQL vs. AlloyDB not yet decided), pgvector, Gemini for embeddings, React/Next.js frontend kept but rehosted on GCP.
 
+## Catering pricing configuration
+
+Organization-owned pricing tiers, conditional base rates, adjustments and tier
+additions are modeled in `models/pricing.py`, with validated inputs in
+`schemas/pricing.py` and migration `a7b83c91d204`. See
+[Pricing model](docs/PRICING_MODEL.md) for onboarding, conditions and limits.
+This is the data foundation; pricing APIs and quote calculation are not wired yet.
+
 ## API paths
 
 Every API route is under **`/api/v1`** (BE-27); paths in this README are written without that prefix. A breaking change would go under `/api/v2`, next to it. The health checks are the exception and stay at the root, where Docker and Cloud Run probe them: `GET /` (the process is up) and `GET /db/health` (the database is reachable).
