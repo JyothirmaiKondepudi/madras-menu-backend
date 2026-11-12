@@ -18,11 +18,16 @@ The new Python backend for Madras Menu Studio's rewrite. The existing app (`madr
 
 ## Catering pricing configuration
 
-Organization-owned pricing tiers, conditional base rates, adjustments and tier
-additions are modeled in `models/pricing.py`, with validated inputs in
-`schemas/pricing.py` and migration `a7b83c91d204`. See
+Each caterer prices through a versioned pricing model that names a pricing
+method; Madras's tiered per-guest package is the first (`tiered_per_guest`):
+tiers with course slots, base rates, tier additions, surcharges per dish or
+dish class, and a policy for service charge, tax and rounding. Live stations
+are each caterer's add-on catalog (`scripts/import_live_stations.py` loads
+them from CSV), and quotes keep a frozen copy of every price offered. Models
+in `models/pricing.py`, `models/quote.py` and `models/live_station.py`,
+inputs in `schemas/pricing.py`, migrations `a7b83c91d204` and `bad71e322a9c`. See
 [Pricing model](https://github.com/JyothirmaiKondepudi/madras-menu-backend/wiki/Pricing-Model) (wiki) for onboarding, conditions and limits.
-This is the data foundation; pricing APIs and quote calculation are not wired yet.
+This is the data model only; pricing endpoints and the quote calculator aren't built yet.
 
 ## API paths
 
