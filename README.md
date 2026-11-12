@@ -1,6 +1,6 @@
 # Madras Menu Backend
 
-Status as of 2026-09-20: a real, running FastAPI service — authentication, a table-driven permissions system, project/subproject/invoice CRUD, invoice PDF generation, a client accept/reject flow, and a real notification log (not a boolean flag) are all built, tested, and verified end-to-end against the local dev database. The role vocabulary is `vendor`/`client` (not `admin`/`client`), and the per-project catering engagement entity is `Subproject` (not `Service`) — see **Vocabulary: vendor and subproject** below for why. The dish-hierarchy/knowledge-graph work (below) is a separate, still-local-only prototype, currently paused pending a decision on how to run its classification step at scale. No GCP infra, no production database writes yet — everything so far targets the local Docker Postgres only.
+Status as of 2026-11-12: a real, running FastAPI service — authentication, a table-driven permissions system, multi-tenant organization scoping, project/subproject/invoice CRUD, invoice documents (line items, numbering, PDF), a client accept/reject flow, billing history, an activity timeline, a notification log, an API request log, a rate card and equipment list, and the data model for catering pricing are all built and tested against the local dev database. The roles are `vendor`, `client` and `platform_admin` (not `admin`/`client`), and the per-project catering engagement entity is `Subproject` (not `Service`) — see **Vocabulary: vendor and subproject** below for why. The dish-hierarchy/knowledge-graph work (below) is a separate, still-local-only prototype, currently paused pending a decision on how to run its classification step at scale. No GCP infra, no production database writes yet — everything so far targets the local Docker Postgres only.
 
 ## What this repo is
 
@@ -21,7 +21,7 @@ The new Python backend for Madras Menu Studio's rewrite. The existing app (`madr
 Organization-owned pricing tiers, conditional base rates, adjustments and tier
 additions are modeled in `models/pricing.py`, with validated inputs in
 `schemas/pricing.py` and migration `a7b83c91d204`. See
-[Pricing model](docs/PRICING_MODEL.md) for onboarding, conditions and limits.
+[Pricing model](https://github.com/JyothirmaiKondepudi/madras-menu-backend/wiki/Pricing-Model) (wiki) for onboarding, conditions and limits.
 This is the data foundation; pricing APIs and quote calculation are not wired yet.
 
 ## API paths
@@ -74,7 +74,9 @@ Real, working, not a stub. Email + password only for now — Google Sign-In was 
 
 - **Passwords**: `bcrypt` directly (`auth/security.py`), not `passlib` — `passlib`'s bcrypt backend has a real, documented incompatibility with `bcrypt>=4.1`. Optional at user-creation time (`POST /users`) — a `user_data` row can exist with no login capability at all, which is the normal case for a client a vendor hasn't given portal access to yet.
 - **Tokens**: `PyJWT`, `HTTPBearer` (not `OAuth2PasswordBearer` — login is a JSON body, not form-encoded). Access-token-only, no refresh flow yet, so the default expiry (`JWT_EXPIRE_MINUTES`, 720 = 12h) is deliberately longer than a typical short-lived access token to stay usable for a day's work.
-- **No open self-registration.** `POST /users` (the only way a new account gets created) is itself vendor-only — closing off the obvious risk of an unauthenticated caller creating themselves as `role="vendor"`. This creates a real bootstrap problem (how does the *first* vendor get created, if creating any user requires already being one?) — solved out-of-band, by inserting the first vendor row directly against the database, the same way a production deployment of this app would need to once. There is no API path for this on purpose.
+- **No open self-registration.** `POST /users` (the only way a new account gets created) is itself vendor-only — closing off the obvious risk of an unauthenticated caller creating themselves as `role="vendor"`. This creates a real bootstrap problem (how does the *first* vendor get created, if creating any user requires already being one?) — solved out-of-band by `scripts/seed_dev.py`, which creates the first organization and its vendor directly in the database (`scripts/seed_platform_admin.py` does the same for a `platform_admin`). There is no API path for this on purpose.
+- **Multi-tenant by organization.** Every user and project belongs to an organization (`organizations` table), and every route only sees the caller's own organization: another organization's records read as `404` (covered by `tests/test_tenant_isolation.py`). A new user joins the organization of the vendor who created them. The `platform_admin` role is meant for the platform operator; it holds every permission but is still scoped to its own organization, and a cross-organization view is not built yet.
+- **Users are disabled, not deleted**, once they have history (`POST /users/{id}/disable` / `enable`). Disabling an *organization* (`orgDisabled`) does not yet block its users from logging in.
 - **Authorization is a real permissions table, not hardcoded role checks** — see its own section below. Whatever a role *isn't* explicitly granted, it doesn't have.
 - Beyond the table: users are also scoped to their own data by identity/relationship where a blanket permission doesn't apply — `user_projects` (a many-to-many table that existed in the schema but was never wired up until this work) for projects/subprojects, and `invoiceAssignedTo` directly for invoices — a deliberately different rule, since an invoice is billed to a *person*, not scoped by project the way subprojects are (see Invoicing below for how invoices relate to projects instead).
 - **Every route requires a valid token.** Reads are either gated by a specific permission (users, tax categories, the menu/hierarchy catalog, embeddings) or scoped as above; every write anywhere in the app requires a permission, with one deliberate exception — a client can `POST /invoices/{id}/accept` or `/reject` on their **own** invoice (see Invoicing below) with no permission required at all, since that's an identity check, not a role capability.
@@ -82,11 +84,11 @@ Real, working, not a stub. Email + password only for now — Google Sign-In was 
 
 ## Permissions table
 
-Real RBAC, not a hardcoded `if role == "admin"` scattered across routes. Two tables: `permissions` (one row per granular action — `project:create`, `invoice:view_all`, `tax_category:manage`, 25 in total) and `role_permissions` (which roles have which permissions — keyed by the plain role-name string `User.userRole` already uses, not a separate `roles` table, since roles aren't independent entities with their own attributes here).
+Real RBAC, not a hardcoded `if role == "admin"` scattered across routes. Two tables: `permissions` (one row per granular action — `project:create`, `invoice:view_all`, `tax_category:manage`; 37 in total, listed in `auth/permissions.py`) and `role_permissions` (which roles have which permissions — keyed by the plain role-name string `User.userRole` already uses, not a separate `roles` table, since roles aren't independent entities with their own attributes here).
 
 - **`auth/dependencies.py`'s `require_permission("name")`** replaces every former `require_admin` dependency; `user_has_permission(user, name, db)` is the same check for the inline "vendor or scoped" branches that stay everywhere a user can see a restricted slice of something they don't have blanket access to.
 - **Deliberately fine-grained** — one permission per resource+action (`user:create`, `user:update`, `user:delete`, not one `user:manage`) — because the whole point is letting a future role (`staff`, `chef`, anticipated in this project's original notes but never built) get a genuinely different subset of capabilities than vendor, not just "less than vendor." A few low-stakes, purely-internal areas (tax categories, the hierarchy/knowledge-graph tables, embeddings) are still gated by one coarse permission each, since there's no real scenario yet where a role needs some-but-not-all of those.
-- **Today only `vendor` has any rows in `role_permissions`** (all 25) — `client` has none, because a client's access is entirely identity/resource-scoped (the bullet points above), not permission-table-driven. Granting a new role a specific capability — e.g. letting `staff` create menu items — is now a single `INSERT INTO role_permissions` with **no code change and no redeploy**, verified for real: created a `staff` user with zero permissions (got a real `403`), granted it `menu_item:create` via one SQL insert, and the exact same request succeeded. Since BE-22 each role's permission set is cached in memory for 60 seconds (`auth/access.py`), so a new grant takes effect within a minute, still with no restart; `clear_permission_cache()` applies it at once.
+- **`vendor` and `platform_admin` hold the rows in `role_permissions`.** `platform_admin` has all 37. `vendor` has 32: it lacks the five organization-wide ones (`org:list`, `org:view_all`, `org:create`, `org:delete`, `user:grant_platform_admin`), because granting them to every vendor would let one caterer see or edit other caterers' organizations. `client` has none, because a client's access is entirely identity/resource-scoped (the bullet points above), not permission-table-driven. Granting a new role a specific capability — e.g. letting `staff` create menu items — is now a single `INSERT INTO role_permissions` with **no code change and no redeploy**, verified for real: created a `staff` user with zero permissions (got a real `403`), granted it `menu_item:create` via one SQL insert, and the exact same request succeeded. Since BE-22 each role's permission set is cached in memory for 60 seconds (`auth/access.py`), so a new grant takes effect within a minute, still with no restart; `clear_permission_cache()` applies it at once.
 - **Access checks are written once (BE-22), in `auth/access.py`:** `ensure_project_access` (has the view-all permission, or is linked to the project) and `ensure_own_or_permission` (has the view-all permission, or the record is their own: their profile, their org, an invoice billed to them). Routes call these instead of repeating the condition.
 - **The seed list lives in exactly one place**, `auth/permissions.py` — imported by both the baseline Alembic migration (`b1717c5e72f7_baseline_schema.py`) and the test suite's `conftest.py` (which builds its schema via `Base.metadata.create_all()`, bypassing Alembic entirely, so it needs its own seeding step). Two hand-maintained copies of this list was exactly the kind of drift that caused a real bug earlier in this project's hierarchy-tree work — not repeating that mistake here.
 
@@ -97,6 +99,9 @@ Real RBAC, not a hardcoded `if role == "admin"` scattered across routes. Two tab
 - **A PDF is generated for every invoice**, automatically, on both creation and every subsequent update (`services/invoice_pdf.py`, `reportlab` — no system-level dependencies, unlike `weasyprint`) — generate-and-store, not generate-on-demand, so `GET /invoices/{id}/pdf` is always serving the invoice's current state, never a stale creation-time snapshot.
 - **A client can accept or reject their own invoice** (`POST /invoices/{id}/accept` / `/reject`) — the one place in the entire app where a non-vendor can write anything. Doing so sets a real `Accepted` status (kept distinct from `Paid` — agreeing to an invoice and payment actually being received are different events) or `Declined`, and notifies **both** the client and the project's vendor — see Notifications below for how, which replaces the plain-boolean flag this used to set.
 - Two real Postgres/SQLAlchemy issues surfaced building this, worth knowing if you touch this code: `Invoice.project` needed an explicit `foreign_keys=` once `Project.finalInvoiceId` created a second FK path between the same two tables (otherwise SQLAlchemy can't tell which column defines the relationship), and that same mutual-FK cycle silently broke `Base.metadata.create_all()`/`drop_all()` for the test database until the newer FK was marked `use_alter=True`.
+- **Payments** are recorded by the vendor (offline: cash, cheque, transfer), only on accepted invoices, and never beyond the remaining balance. The invoice row is locked while a payment is recorded or voided, so simultaneous payments can't overpay. The payment that clears the balance marks the invoice `Paid`, and voiding a payment moves it back to `Accepted`.
+- **`billing_info`** keeps a per-subproject summary (invoiced, paid, balance, status, next due date), recomputed in the same transaction as every invoice or payment change. `overdue` is worked out when it's read.
+- **Due dates** default to 7 days before the event.
 
 ## Notifications
 
@@ -139,7 +144,7 @@ As of 2026-10-02 the Prisma tables are gone. The database was torn down and rebu
 
 ## Local dev database
 
-Runs via Docker (`docker-compose.yml` + `docker/Dockerfile`) — switched from Postgres.app because it was noticeably slow on this machine. Image is `pgvector/pgvector:pg16` (pgvector pre-installed and pre-enabled via `docker/init/01-enable-pgvector.sql`, even though nothing here uses vectors yet — cheap to bake in now versus a rebuild+reload later when the embeddings work starts). Listens on host port `5433` (not `5432`, so it never conflicts with Postgres.app). Data lives in a Docker-managed named volume, not a path on the laptop's disk.
+Runs via Docker (`docker-compose.yml` + `docker/Dockerfile`) — switched from Postgres.app because it was noticeably slow on this machine. Image is `pgvector/pgvector:pg16` (pgvector pre-installed and pre-enabled via `docker/init/01-enable-pgvector.sql`, used by the `menu_item_embeddings` table and its HNSW index). Listens on host port `5433` (not `5432`, so it never conflicts with Postgres.app). Data lives in a Docker-managed named volume, not a path on the laptop's disk.
 
 ```bash
 cd ~/madras-menu-backend
@@ -162,7 +167,7 @@ then `SELECT child, parent, confidence FROM item_relationships_readable;` in `ps
 
 ## The classification pipeline, step by step
 
-Moved to [`docs/ETL_PIPELINE.md`](docs/ETL_PIPELINE.md) — the full elaborate version, covering both how the tree actually got to 682 items (the manual pipeline) and the embedding-driven design being built now (every stage mapped to its real FastAPI endpoint, including the node/self-parent/cycle checks and the exact `item_relationships` write path).
+Moved to the [ETL Pipeline](https://github.com/JyothirmaiKondepudi/madras-menu-backend/wiki/ETL-Pipeline) wiki page — the full elaborate version, covering both how the tree was built by hand (the manual pipeline) and the embedding-driven design being built now (every stage mapped to its real FastAPI endpoint, including the node/self-parent/cycle checks and the exact `item_relationships` write path).
 
 ## What's actually built
 
@@ -187,7 +192,7 @@ Moved to [`docs/ETL_PIPELINE.md`](docs/ETL_PIPELINE.md) — the full elaborate v
 | 4 | 529 | 70 | `Chicken Biryani` manually connected to `Basmati rice` (see design note above); `Wada`/`Vada Pav` cuisine-mismatch caught |
 | 5 | 679 | 85 | `Goat Biryani`/`Hyderabadi Dhum Biryani` join the `Basmati rice` family; `Gajar ka Halwa` and `Gobi Manchurian` reclassifications |
 
-**Current: 679 / 1,456 real items loaded (47%), 85 edges, ~37 root trees.**
+**Last recorded: 682 / 1,456 real items (47%) and 88 edges.** The table stops at batch 5 (679 / 85); the last three items and edges aren't broken out. These figures come from the database used before the 2026-10-02 rebuild; the local database currently holds no catalog rows, so they need re-checking once the catalog is loaded again.
 
 A process bug worth recording, not just the data: the JSON file used to track "already classified" state between batches fell out of sync with the database twice — once when a manual edge was added directly via SQL, once when a batch's results were never copied into the tracking file at all. Both times the database itself stayed correct; the bug was purely in hand-maintained tracking state, re-derived ad hoc each batch instead of going through one tested function. **Fixed structurally, not just patched**: `hierarchy/mutations.py` now provides real `insert_edge`/`update_edge`/`delete_edge` functions that read and write the database directly — no separate tracking file to keep in sync at all going forward.
 
@@ -195,7 +200,7 @@ A real, recurring data-quality signal worth a human pass eventually: near-duplic
 
 ## The tree, visually
 
-Five representative subtrees out of the current 33 — not all of them (GitHub shrinks a Mermaid diagram to fit the page width regardless of how many disconnected pieces are in it, so more trees per diagram means smaller text, not a bigger picture). Regenerate any of these, or the full set, with `hierarchy/traverse.py` (see below).
+Five representative subtrees out of the 33 root trees last counted — not all of them (GitHub shrinks a Mermaid diagram to fit the page width regardless of how many disconnected pieces are in it, so more trees per diagram means smaller text, not a bigger picture). Regenerate any of these, or the full set, with `hierarchy/traverse.py` (see below).
 
 ### `Basmati rice` — multi-level, and why `Chicken Biryani` lives here directly
 
@@ -279,10 +284,19 @@ python3 hierarchy/traverse.py --mermaid tree_diagram.md
 ## Next steps (not yet done)
 
 **Backend (auth/invoicing side):**
-- Google Sign-In, SendGrid-based invite emails, and refresh tokens — all explicitly deferred, not forgotten.
+- Google Sign-In, SendGrid-based invite emails, and refresh tokens — all explicitly deferred, not forgotten. Invited clients exist as users with no password, but there's no "set your first password" endpoint yet.
+- Idempotency keys for payments and invoice creation, so a retried request isn't recorded twice.
+- A payment reminder scheduler, using `billing_info.next_due_date`.
 - The permissions table mechanism is real and working, but no `staff`/`chef` role actually exists yet with a real, considered subset of permissions granted — that's now a data decision (which rows to insert), not an engineering one.
 - The actual client/vendor dashboards — this backend can answer "which projects/invoices are mine" and "who needs notifying" (via `/notifications/unread`), but no aggregation endpoint or frontend exists yet.
 - Porting `MenuGenerator.ts`/`pricingService.ts`/`noRepeatLedger.ts` from the old repo (the original "Step 1," still on hold).
+- Pricing endpoints and quote calculation on top of the pricing tables ([Pricing model](https://github.com/JyothirmaiKondepudi/madras-menu-backend/wiki/Pricing-Model) wiki page).
+- Enforcing `orgDisabled` at login and on every request, so the admin service can lock out a caterer.
+- The shared catalog (`menu_items`, `tax_categories`, `item_relationships`, embeddings) has no `org_id`, but every vendor can write to it: either scope it per organization or restrict writes to `platform_admin`.
+- Invoice PDFs are written to local disk (`storage/invoices/`), which doesn't survive restarts or work across several instances: move them to object storage (BE-20).
+- Login hardening: rate limiting, a minimum password length, and invalidating tokens after a password change.
+- CI that runs the tests and `alembic upgrade head` on an empty database (the tests build the schema with `create_all`, so migration drift goes unnoticed).
+- `LiveStation` (`models/live_station.py`) has a table but no API; build it or drop it.
 
 **Hierarchy / classification pipeline (paused):**
 - The automated classify stage isn't in this repo: a prototype (`hierarchy/candidates.py` for embedding-based retrieval, `hierarchy/classify.py` for the Ollama/Gemini call) was written in commit `31f268e` and removed again in `5a8f9a0`. Bringing it back is blocked on a real infrastructure decision: local Ollama models don't fit this dev machine's 8GB RAM without risking a hang, and Gemini's free tier caps at 20 requests/day — nowhere near enough for the ~1,367 still-unclassified items. Needs either paid Gemini billing, a different model, or a different machine.

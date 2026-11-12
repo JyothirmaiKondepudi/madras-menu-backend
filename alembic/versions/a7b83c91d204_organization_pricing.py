@@ -1,6 +1,6 @@
 """Organization-owned catering pricing configuration.
 
-Preserves legacy price_tiers: its rows have no reliable organization mapping.
+Independent of the old price_tiers table, which 45b406b85355 already dropped.
 No organizations, rates, or Madras-specific defaults are inferred or seeded.
 """
 from alembic import op

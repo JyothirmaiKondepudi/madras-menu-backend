@@ -17,7 +17,7 @@ _embeddings_client = OllamaEmbeddings(model=EMBEDDING_MODEL, base_url=OLLAMA_BAS
 
 
 def build_embedding_text(name: str, course: str, cuisine_tags: list[str] | None) -> str:
-    """name + course + cuisine_tags, per docs/ETL_PIPELINE.md — a bare name
+    """name + course + cuisine_tags, per the ETL Pipeline wiki page — a bare name
     alone is often too ambiguous (e.g. "Pilaf" says nothing about it being
     a rice dish); course and cuisine tags give the embedding model real
     disambiguating signal, directly relevant to matching regional name
