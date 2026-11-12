@@ -3,7 +3,7 @@ from pgvector.sqlalchemy import Vector
 from database import Base
 
 # Retrieval only (semantic search for candidate parents). The parent/child
-# tree lives solely in item_relationships. See docs/ETL_PIPELINE.md.
+# tree lives solely in item_relationships. See the ETL Pipeline wiki page.
 
 
 class MenuItemEmbedding(Base):
