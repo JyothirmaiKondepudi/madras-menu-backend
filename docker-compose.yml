@@ -19,6 +19,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  # Applies pending Alembic migrations once, then exits. The backend waits
+  # for it to succeed, so it never starts against an unmigrated database.
+  migrate:
+    build: .
+    container_name: madras-migrate
+    env_file:
+      - .env.local
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
   backend:
     build: .
     container_name: madras-backend
@@ -26,9 +37,13 @@ services:
       - .env.local
     ports:
       - "8000:8000"
+    volumes:
+      # invoice PDFs; a named volume so they survive rebuilds
+      - madras_storage:/app/storage
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   madras_pgdata:
+  madras_storage:

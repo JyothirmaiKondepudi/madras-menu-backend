@@ -1,9 +1,16 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
+from uuid import UUID
+
+# the only type so far; see hierarchy/mutations.py
+RelationshipType = Literal["parent_of"]
+
 
 class ItemRelationshipOut(BaseModel):
-    id: str
-    fromItemId: str
-    toItemId: str
+    id: UUID
+    fromItemId: UUID
+    toItemId: UUID
     relationshipType: str
     relationshipMetadata: dict | None = None
 
@@ -11,15 +18,15 @@ class ItemRelationshipOut(BaseModel):
 
 
 class ItemRelationshipCreate(BaseModel):
-    childId: str
-    parentId: str
-    relationshipType: str = "parent_of"
+    childId: UUID
+    parentId: UUID
+    relationshipType: RelationshipType = "parent_of"
     confidence: str | None = None
     reason: str | None = None
 
 
 class ItemRelationshipUpdate(BaseModel):
-    newParentId: str
-    relationshipType: str = "parent_of"
+    newParentId: UUID
+    relationshipType: RelationshipType = "parent_of"
     confidence: str | None = None
     reason: str | None = None

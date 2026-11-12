@@ -1,54 +1,142 @@
-from models import Invoice, Project, User
+from decimal import Decimal, ROUND_HALF_UP
+
+from models import Invoice, Project, User, Subproject
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from schemas.invoice import InvoiceUpdate
 from services.invoice_pdf import generate_invoice_pdf
 from services.notifications import create_notification
+from services.account_activity import record_activity
+from services.timezones import to_instant
+from services.billing_history import _recompute_billing_info, lock_invoice
+from services.invoice_status import EDITABLE_INVOICE_STATUSES, InvoiceStatusError, change_invoice_status
+from services.invoice_document import (
+    InvoiceDocumentError,
+    build_line_items,
+    next_invoice_number,
+    refresh_snapshots,
+    totals,
+)
+from datetime import datetime, timezone, timedelta
 
 # InvoiceOut nests project -> client/vendor, same reasoning as
-# services/subproject.py's _WITH_PROJECT_AND_USERS.
-_WITH_PROJECT_AND_USERS = joinedload(Invoice.project).options(
-    joinedload(Project.client),
-    joinedload(Project.vendor),
+# services/subproject.py's _WITH_PROJECT_AND_USERS, and the line items:
+# loaded for the whole list in one query rather than one per invoice
+_WITH_PROJECT_AND_USERS = (
+    joinedload(Invoice.project).options(
+        selectinload(Project.users),
+        joinedload(Project.vendor),
+    ),
+    selectinload(Invoice.lineItems),
 )
 
 
-def get_all_invoices(db: Session):
-    return db.execute(select(Invoice).options(_WITH_PROJECT_AND_USERS)).scalars().all()
+def invoices_in_org_query(organization_id):
+    """ "All invoices" means all invoices in the caller's own organization,
+    scoped by joining through Invoice's own project, since Invoice doesn't
+    carry its own organizationId (Project is the single source of truth for
+    which org a piece of business data belongs to)."""
+    return (
+        select(Invoice)
+        .join(Project, Invoice.projectAssociatedTo == Project.projectId)
+        .where(Project.organizationId == organization_id)
+        .options(*_WITH_PROJECT_AND_USERS)
+    )
 
-def get_invoice_by_id(invoice_id, db: Session):
-    return db.get(Invoice, invoice_id, options=[_WITH_PROJECT_AND_USERS])
 
-def get_invoices_by_user_id(user_id, db: Session):
-    """For a non-vendor's GET /invoices — scoped by invoiceAssignedTo (who
+def get_live_invoice(db: Session, invoice_id) -> Invoice | None:
+    """The one place an invoice is loaded by id. None if it doesn't exist or
+    is soft-deleted. The global filter in database.py normally hides deleted
+    invoices, but db.get returns a row already loaded in the session without
+    asking the database, so the filter alone isn't enough here.
+    tests/test_invoice_lookup.py fails on any other db.get(Invoice, ...)."""
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None or invoice.invoiceDeletedAt is not None:
+        return None
+    return invoice
+
+
+def invoices_for_user_query(user_id):
+    """For a non-vendor's GET /invoices: scoped by invoiceAssignedTo (who
     it's billed to), not by project, since one person can be billed across
     several of their own projects."""
-    return db.execute(
-        select(Invoice).where(Invoice.invoiceAssignedTo == user_id).options(_WITH_PROJECT_AND_USERS)
-    ).scalars().all()
+    return (
+        select(Invoice)
+        .where(Invoice.invoiceAssignedTo == user_id)
+        .options(*_WITH_PROJECT_AND_USERS)
+    )
 
-def get_invoices_by_project_id(project_id, db: Session):
-    return db.execute(
-        select(Invoice).where(Invoice.projectAssociatedTo == project_id).options(_WITH_PROJECT_AND_USERS)
-    ).scalars().all()
 
-def _regenerate_pdf(invoice: Invoice, db: Session) -> None:
+def invoices_in_project_query(project_id):
+    return (
+        select(Invoice)
+        .where(Invoice.projectAssociatedTo == project_id)
+        .options(*_WITH_PROJECT_AND_USERS)
+    )
+
+
+def compute_invoice_amount(total_amount, deposit_percentage) -> Decimal:
+    """totalAmount * depositPercentage / 100, rounded to the cent. Decimal so
+    e.g. 33.33% of 1000 is 333.30, not 333.29999..."""
+    amount = Decimal(str(total_amount)) * Decimal(str(deposit_percentage)) / 100
+    return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def regenerate_pdf(invoice: Invoice, db: Session) -> None:
     """The stored PDF always reflects the invoice's current data — called
     after every create AND every update, not just once at creation."""
     assigned_user = db.get(User, invoice.invoiceAssignedTo)
     generate_invoice_pdf(invoice, assigned_user)
 
-def add_new_invoice(new_invoice, db: Session):
+
+def add_new_invoice(new_invoice, db: Session, actor_id=None):
+    due_date = new_invoice.dueDate
+    if new_invoice.subprojectId is not None:
+        sub_project = db.get(Subproject, new_invoice.subprojectId)
+        time_zone = sub_project.effectiveTimezone
+        if due_date is None:
+            due_date = sub_project.subprojectDate - timedelta(days=7)
+    else:
+        time_zone = db.get(Project, new_invoice.projectAssociatedTo).effectiveTimezone
+    org_id = db.get(Project, new_invoice.projectAssociatedTo).organizationId
+
+    # the total comes from the line items when there are any (BE-04), else
+    # it's the single amount sent
+    if new_invoice.lineItems is not None:
+        line_items = build_line_items(new_invoice.lineItems, org_id, db)
+        subtotal, total = totals(line_items, new_invoice.adjustmentPercentage)
+    else:
+        line_items, subtotal, total = [], None, new_invoice.totalAmount
+
     created_invoice = Invoice(
-        invoiceStatus=new_invoice.invoiceStatus,
-        invoiceAmount=new_invoice.invoiceAmount,
+        invoiceStatus="Assigned",
+        invoiceNumber=next_invoice_number(org_id, db),
+        invoiceAmount=compute_invoice_amount(total, new_invoice.depositPercentage),
+        totalAmount=total,
+        subtotalAmount=subtotal,
+        adjustmentPercentage=new_invoice.adjustmentPercentage,
+        currency=new_invoice.currency,
+        legalTerms=new_invoice.legalTerms,
+        deliverables=new_invoice.deliverables,
+        lineItems=line_items,
+        depositPercentage=new_invoice.depositPercentage,
         invoiceAssignedTo=new_invoice.invoiceAssignedTo,
         projectAssociatedTo=new_invoice.projectAssociatedTo,
+        subprojectId=new_invoice.subprojectId,
+        dueDate=to_instant(due_date, timezone=time_zone),
     )
     db.add(created_invoice)
-    db.commit()
+    if created_invoice.subprojectId is not None:
+        # the session doesn't autoflush, so flush first or the recompute
+        # won't see this invoice
+        db.flush()
+        _recompute_billing_info(created_invoice.subprojectId, db)
+
+    db.flush()
     db.refresh(created_invoice)
-    _regenerate_pdf(created_invoice, db)
+    refresh_snapshots(created_invoice, db)
+    db.flush()
+
     create_notification(
         db,
         user_id=created_invoice.invoiceAssignedTo,
@@ -56,30 +144,105 @@ def add_new_invoice(new_invoice, db: Session):
         message=f"A new invoice for ${created_invoice.invoiceAmount:,.2f} has been generated",
         related_invoice_id=created_invoice.invoiceId,
     )
+    record_activity(
+        db,
+        activity_type="invoice_generated",
+        description=f"An invoice for ${created_invoice.invoiceAmount:,.2f} was generated",
+        project_id=created_invoice.projectAssociatedTo,
+        actor_id=actor_id,
+    )
     return created_invoice
 
+
 def update_invoice_by_invoice_id(invoice_id, updates: InvoiceUpdate, db: Session):
-    invoice = db.get(Invoice, invoice_id)
+    invoice = get_live_invoice(db, invoice_id)
     if invoice is None:
         return None
+    # saved before the changes are applied: if the subproject changes, the
+    # one the invoice leaves needs recomputing too
+    old_subproject_id = invoice.subprojectId
 
-    for field, value in updates.model_dump(exclude_unset=True).items():
+    changes = updates.model_dump(exclude_unset=True)
+    # line items are rebuilt below, not copied over as plain dicts
+    changes.pop("lineItems", None)
+    if "totalAmount" in changes and invoice.lineItems and "lineItems" not in updates.model_fields_set:
+        raise InvoiceDocumentError(
+            "this invoice's total is computed from its line items; change the lines instead"
+        )
+    for field, value in changes.items():
         setattr(invoice, field, value)
 
-    db.commit()
+    if "lineItems" in updates.model_fields_set:
+        invoice.lineItems = build_line_items(
+            updates.lineItems, invoice.project.organizationId, db
+        )
+    if "lineItems" in updates.model_fields_set or "adjustmentPercentage" in changes:
+        if not invoice.lineItems:
+            raise InvoiceDocumentError("adjustmentPercentage applies to line items")
+        invoice.subtotalAmount, invoice.totalAmount = totals(
+            invoice.lineItems, invoice.adjustmentPercentage
+        )
+        changes["totalAmount"] = invoice.totalAmount
+
+    if "totalAmount" in changes or "depositPercentage" in changes:
+        if invoice.totalAmount is None or invoice.depositPercentage is None:
+            # only possible for invoices created before deposits existed
+            db.rollback()
+            raise ValueError(
+                "totalAmount and depositPercentage are both needed to compute invoiceAmount"
+            )
+        invoice.invoiceAmount = compute_invoice_amount(
+            invoice.totalAmount, invoice.depositPercentage
+        )
+
+    if "dueDate" in changes:
+        # db.get rather than invoice.subproject, which can still be the old
+        # subproject until a flush if this request changed subprojectId
+        if invoice.subprojectId is not None:
+            time_zone = db.get(Subproject, invoice.subprojectId).effectiveTimezone
+        else:
+            time_zone = invoice.project.effectiveTimezone
+        invoice.dueDate = to_instant(invoice.dueDate, time_zone)
+
+    # the session doesn't autoflush, so flush first or the recompute
+    # uses the old amount and subproject
+    db.flush()
+    # sorted so concurrent moves lock subprojects in the same order and can't deadlock
+    for subproject_id in sorted({old_subproject_id, invoice.subprojectId} - {None}):
+        _recompute_billing_info(subproject_id, db)
+    # still the vendor's draft: keep the printed business and client details
+    # current. Once the client accepts, the invoice keeps what they saw.
+    if invoice.invoiceStatus in EDITABLE_INVOICE_STATUSES:
+        refresh_snapshots(invoice, db)
+    db.flush()
     db.refresh(invoice)
-    _regenerate_pdf(invoice, db)
+
     return invoice
 
-def respond_to_invoice(invoice: Invoice, new_status: str, db: Session) -> Invoice:
+
+def respond_to_invoice(
+    invoice: Invoice, new_status: str, db: Session, actor_id=None
+) -> Invoice:
     """The client (or vendor, on their behalf) accepting/declining an
     invoice. Notifies BOTH the client (invoiceAssignedTo) and the
     project's vendor — regardless of which of the two performed the
-    action, per the basic design: "each gets a notification.\""""
-    invoice.invoiceStatus = new_status
-    db.commit()
+    action, per the basic design: "each gets a notification.\" """
+    # Idempotent: repeating an answer already given (a double-click, a retried
+    # request, client and vendor both accepting) returns the invoice as it is
+    # and sends nothing. Checked under the invoice lock, so two simultaneous
+    # accepts can't both see Assigned and both notify.
+    invoice = lock_invoice(invoice, db)
+    if invoice.invoiceStatus == new_status:
+        return invoice
+
+    # raises InvoiceStatusError if the invoice can't move there (e.g. it's
+    # already been accepted, paid or declined)
+    change_invoice_status(invoice, new_status)
+    if invoice.subprojectId is not None:
+        db.flush()
+        _recompute_billing_info(invoice.subprojectId, db)
+    db.flush()
     db.refresh(invoice)
-    _regenerate_pdf(invoice, db)
 
     status_word = new_status.lower()
     create_notification(
@@ -94,16 +257,41 @@ def respond_to_invoice(invoice: Invoice, new_status: str, db: Session) -> Invoic
             db,
             user_id=invoice.project.vendorOnProject,
             type=f"invoice_{status_word}",
-            message=f"An invoice for \"{invoice.project.projectName}\" was {status_word} by the client",
+            message=f'An invoice for "{invoice.project.projectName}" was {status_word} by the client',
             related_invoice_id=invoice.invoiceId,
+        )
+    if new_status == "Accepted":
+        record_activity(
+            db,
+            activity_type="invoice_accepted",
+            description=f'Invoice for "{invoice.project.projectName}" was accepted by the client',
+            project_id=invoice.projectAssociatedTo,
+            actor_id=actor_id,
         )
     return invoice
 
-def delete_invoice_by_invoice_id(invoice_id, db: Session):
-    invoice = db.get(Invoice, invoice_id)
+
+def delete_invoice_by_invoice_id(invoice_id, db: Session, actor_id=None):
+    """Soft delete: the row stays for the financial record, stamped with
+    invoiceDeletedAt. The route has already checked that it's deletable."""
+    invoice = get_live_invoice(db, invoice_id)
     if invoice is None:
         return None
-
-    db.delete(invoice)
-    db.commit()
+    invoice.invoiceDeletedAt = datetime.now(timezone.utc)
+    if invoice.project.finalInvoiceId == invoice.invoiceId:
+        invoice.project.finalInvoiceId = None
+    if invoice.subprojectId is not None:
+        # the session doesn't autoflush, so flush first or the recompute
+        # still counts this invoice
+        db.flush()
+        _recompute_billing_info(invoice.subprojectId, db)
+    db.flush()
+    record_activity(
+        db,
+        activity_type="invoice_deleted",
+        description=f'Invoice for "{invoice.project.projectName}" was deleted',
+        project_id=invoice.projectAssociatedTo,
+        subproject_id=invoice.subprojectId,
+        actor_id=actor_id,
+    )
     return invoice

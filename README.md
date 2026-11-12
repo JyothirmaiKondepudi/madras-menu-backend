@@ -1,6 +1,6 @@
 # Madras Menu Backend
 
-Status as of 2026-09-20: a real, running FastAPI service — authentication, a table-driven permissions system, project/subproject/invoice CRUD, invoice PDF generation, a client accept/reject flow, and a real notification log (not a boolean flag) are all built, tested, and verified end-to-end against the local dev database. The role vocabulary is `vendor`/`client` (not `admin`/`client`), and the per-project catering engagement entity is `Subproject` (not `Service`) — see **Vocabulary: vendor and subproject** below for why. The dish-hierarchy/knowledge-graph work (below) is a separate, still-local-only prototype, currently paused pending a decision on how to run its classification step at scale. No GCP infra, no production database writes yet — everything so far targets the local Docker Postgres only.
+Status as of 2026-11-12: a real, running FastAPI service — authentication, a table-driven permissions system, multi-tenant organization scoping, project/subproject/invoice CRUD, invoice documents (line items, numbering, PDF), a client accept/reject flow, billing history, an activity timeline, a notification log, an API request log, a rate card and equipment list, and the data model for catering pricing are all built and tested against the local dev database. The roles are `vendor`, `client` and `platform_admin` (not `admin`/`client`), and the per-project catering engagement entity is `Subproject` (not `Service`) — see **Vocabulary: vendor and subproject** below for why. The dish-hierarchy/knowledge-graph work (below) is a separate, still-local-only prototype, currently paused pending a decision on how to run its classification step at scale. No GCP infra, no production database writes yet — everything so far targets the local Docker Postgres only.
 
 ## What this repo is
 
@@ -16,40 +16,103 @@ The new Python backend for Madras Menu Studio's rewrite. The existing app (`madr
 - Menu generation becomes knowledge-graph + embeddings driven (RAG-style), replacing the old app's flat rule-based `MenuGenerator.ts`.
 - Stack: FastAPI (Python), Postgres on GCP (Cloud SQL vs. AlloyDB not yet decided), pgvector, Gemini for embeddings, React/Next.js frontend kept but rehosted on GCP.
 
+## Catering pricing configuration
+
+Each caterer prices through a versioned pricing model that names a pricing
+method; Madras's tiered per-guest package is the first (`tiered_per_guest`):
+tiers with course slots, base rates, tier additions, surcharges per dish or
+dish class, and a policy for service charge, tax and rounding. Live stations
+are each caterer's add-on catalog (`scripts/import_live_stations.py` loads
+them from CSV), and quotes keep a frozen copy of every price offered. Models
+in `models/pricing.py`, `models/quote.py` and `models/live_station.py`,
+inputs in `schemas/pricing.py`, migrations `a7b83c91d204` and `bad71e322a9c`. See
+[Pricing model](https://github.com/JyothirmaiKondepudi/madras-menu-backend/wiki/Pricing-Model) (wiki) for onboarding, conditions and limits.
+This is the data model only; pricing endpoints and the quote calculator aren't built yet.
+
+## API paths
+
+Every API route is under **`/api/v1`** (BE-27); paths in this README are written without that prefix. A breaking change would go under `/api/v2`, next to it. The health checks are the exception and stay at the root, where Docker and Cloud Run probe them: `GET /` (the process is up) and `GET /db/health` (the database is reachable).
+
+- **Nested paths put the parent first:** `/projects/{id}/invoices`, `/projects/{id}/subprojects`, `/users/{id}/projects`, `/invoices/{id}/billing-history`, `/subprojects/{id}/billing-history`, `/subprojects/{id}/billing-info`. The full list of organizations is `GET /organizations`.
+- **Actions are `POST`:** accept, reject, read, seen, disable, enable, void, change-password. `PATCH` is only for editing a record's fields.
+- **Every list is paged (BE-08):** it returns `{"items": [...], "total": N, "limit": 50, "offset": 0}`. `?limit=` defaults to 50 and is capped at 200; `?offset=` skips rows. `?sort=field` sorts ascending and `?sort=-field` descending, from a short list of fields per endpoint (anything else is a 422 that lists them). Filters per list: projects `status`, `startFrom`/`startTo`, `search`; invoices `status`, `dueFrom`/`dueTo`, `overdue=true`; subprojects `dateFrom`/`dateTo`, `eventType`; users `role`, `disabled`, `search`; menu items `course`, `vegNonveg`, `active`, `search`; billing history `eventType`, `occurredFrom`/`occurredTo`. The shared code is `services/listing.py`.
+- **Projects can bring their related data along (BE-08b):** `GET /projects`, `GET /projects/{id}` and `GET /users/{id}/projects` take `?include=` with any of `subprojects`, `invoices`, `billing`, e.g. `?include=subprojects,invoices,billing` for the home page. Each project then has those lists (events and invoices without their nested project; `billing` is the per-event billing summaries, so a project-level invoice such as a deposit has none). A field is `null` when not requested and `[]` when requested but empty; an unknown include is a 422. Each include is one query for the whole page, not one per project. Visibility is the same as the dedicated endpoints: a client only gets invoices billed to them. Code: `services/project_includes.py`.
+
+## API request log (BE-24)
+
+Every API request except the health checks gets one `api_logs` row: method, path, route template, status, duration, user, org, IP, user agent, query parameters, and the error for unhandled 500s. The row is written by a background task that runs **after the response has been sent** (`main.py`'s `log_api_activity`), so no request waits on its own log insert, and a failed log write never affects the response. Rows are kept indefinitely for now: there's no retention or cleanup yet.
+
+## Activity timeline and follow-ups (BE-14)
+
+- **`GET /projects/{id}/activity`** is the project's timeline, newest first and paged like every list: `account_activity` rows (project created, invoice accepted, followed up, ...) and payment events from `billing_history`, merged in one query (`services/timeline.py`) so paging works across both. Each entry has `kind` (`activity` or `payment`), `type`, `description`, `occurredAt`, and for payments `amount` and `voidedAt`. Vendor-only for now, because it includes internal entries (deleted invoices, void reasons); what clients may see is part of BE-12.
+- **`POST /projects/{id}/follow-ups`** with `{"note": "...", "nextFollowUpAt": "..."}` records a follow-up: a `followed_up` timeline entry, `lastFollowedUpAt` set to now, and `nextFollowUpAt` set to the given date (or cleared if left out). `PATCH /projects/{id}` with `nextFollowUpAt` reschedules without recording a follow-up. Times without an offset are read in the venue's timezone, like project dates. Sending the follow-up email itself is BE-18.
+
+## Creating a whole project in one call (BE-06)
+
+`POST /projects/full` takes what the project wizard collects and creates it **in one transaction**: `client` (found by email, or created), `project`, `subprojects` (a list) and an optional `invoice`. If any part fails, nothing is saved. It returns the new project with its client, subprojects, invoices and billing included.
+
+- The parts are the usual create bodies without the ids the server fills in (`schemas/project_creation.py`). `vendorOnProject` is optional and defaults to the caller.
+- The invoice points at one of the request's subprojects by its position in the list, `subprojectIndex` (0 = the first); leave it out for a project-level invoice such as a deposit. An index past the list is a 422.
+- **The client's email:** an existing client in the caller's organization is reused, and their saved details aren't changed; a user in another organization, or a staff account, is a 409.
+- Each step calls the same service as its own endpoint, so the same rules, notifications and timeline entries apply (`services/project_creation.py`).
+
+## The invoice document (BE-04)
+
+- **Line items:** create an invoice with `lineItems` (each `kind` = `service`, `equipment` or `custom`, a `quantity`, and either a `sourceId` from the rate card / equipment list or a `name` and `unitPrice`), or, for an invoice with no breakdown, a single `totalAmount`; not both. Catalog lines copy the name and price (they can be overridden), so later catalog edits don't change invoices already written.
+- **Totals:** each line is quantity x unit price (`lineTotal`), their sum is `subtotalAmount`, `adjustmentPercentage` (-10 = 10% discount, 5 = 5% surcharge) turns that into `totalAmount`, and `depositPercentage` into `invoiceAmount` as before. With line items, `totalAmount` can't be edited directly: change the lines.
+- **Invoice numbers:** `INV-<year>-<n>`, counting from 1 per organization per year, handed out by an atomic counter, so simultaneous invoices never share a number, and never reused (deleted invoices keep theirs). Existing invoices were numbered by the migration in creation order.
+- Also `currency` (ISO code, default `USD`), `legalTerms` and `deliverables` (free text).
+- **Snapshot:** the business profile and the client's details are copied onto the invoice (`businessSnapshot`, `clientSnapshot`). They're refreshed whenever the invoice is edited while still Assigned, and frozen once the client accepts, so the accepted invoice keeps what they agreed to.
+- **What can change when:** line items, adjustment and currency only while the invoice is Assigned (409 after). As before, `totalAmount` (for invoices without lines) and the deposit can still be edited later.
+- The PDF shows the number, business header, client, lines, subtotal, adjustment, totals, deliverables and terms.
+
+## Business profile, rate card and equipment (BE-07)
+
+- **Business profile** fields live on the organization and are edited with `PATCH /organizations/{id}`: `orgAddress`, `orgPhone`, `orgEin` (stored as `12-3456789`), `orgCountry` (two-letter code, stored uppercase), `orgLogoUrl` (a link for now; uploads come with file storage, BE-20), `orgSocials` (`{"instagram": "https://..."}`) and `orgWebsites` (a list). URLs must be http(s). `orgName` is the business name.
+- **Rate card:** `GET/POST /rate-card`, `GET/PATCH/DELETE /rate-card/{id}`. Each service has `name`, `price`, `pricingUnit` (`guest`, `hour`, `event` or `tray`), optional `hours` and `category`, and `active` (false hides it from pickers but keeps it). Filters: `active`, `category`, `search`.
+- **Equipment:** `GET/POST /equipment`, `GET/PATCH/DELETE /equipment/{id}`, with `name`, `amount` (its default price) and `active`. Filters: `active`, `search`.
+- Both are per organization and vendor-only (`rate_card:manage`, `equipment:manage`); another organization's items read as 404. They're deleted with their organization. The rate card replaces the old unused `price_tiers` table, which is dropped.
+
 ## Authentication & authorization
 
 Real, working, not a stub. Email + password only for now — Google Sign-In was designed (ID-token verification, no OAuth redirect flow needed) but explicitly dropped from this pass; it can be layered on later via a nullable `googleSub` column without reworking anything here.
 
 - **Passwords**: `bcrypt` directly (`auth/security.py`), not `passlib` — `passlib`'s bcrypt backend has a real, documented incompatibility with `bcrypt>=4.1`. Optional at user-creation time (`POST /users`) — a `user_data` row can exist with no login capability at all, which is the normal case for a client a vendor hasn't given portal access to yet.
 - **Tokens**: `PyJWT`, `HTTPBearer` (not `OAuth2PasswordBearer` — login is a JSON body, not form-encoded). Access-token-only, no refresh flow yet, so the default expiry (`JWT_EXPIRE_MINUTES`, 720 = 12h) is deliberately longer than a typical short-lived access token to stay usable for a day's work.
-- **No open self-registration.** `POST /users` (the only way a new account gets created) is itself vendor-only — closing off the obvious risk of an unauthenticated caller creating themselves as `role="vendor"`. This creates a real bootstrap problem (how does the *first* vendor get created, if creating any user requires already being one?) — solved out-of-band, by inserting the first vendor row directly against the database, the same way a production deployment of this app would need to once. There is no API path for this on purpose.
+- **No open self-registration.** `POST /users` (the only way a new account gets created) is itself vendor-only — closing off the obvious risk of an unauthenticated caller creating themselves as `role="vendor"`. This creates a real bootstrap problem (how does the *first* vendor get created, if creating any user requires already being one?) — solved out-of-band by `scripts/seed_dev.py`, which creates the first organization and its vendor directly in the database (`scripts/seed_platform_admin.py` does the same for a `platform_admin`). There is no API path for this on purpose.
+- **Multi-tenant by organization.** Every user and project belongs to an organization (`organizations` table), and every route only sees the caller's own organization: another organization's records read as `404` (covered by `tests/test_tenant_isolation.py`). A new user joins the organization of the vendor who created them. The `platform_admin` role is meant for the platform operator; it holds every permission but is still scoped to its own organization, and a cross-organization view is not built yet.
+- **Users are disabled, not deleted**, once they have history (`POST /users/{id}/disable` / `enable`). Disabling an *organization* (`orgDisabled`) does not yet block its users from logging in.
 - **Authorization is a real permissions table, not hardcoded role checks** — see its own section below. Whatever a role *isn't* explicitly granted, it doesn't have.
 - Beyond the table: users are also scoped to their own data by identity/relationship where a blanket permission doesn't apply — `user_projects` (a many-to-many table that existed in the schema but was never wired up until this work) for projects/subprojects, and `invoiceAssignedTo` directly for invoices — a deliberately different rule, since an invoice is billed to a *person*, not scoped by project the way subprojects are (see Invoicing below for how invoices relate to projects instead).
-- **Every route requires a valid token.** Reads are either gated by a specific permission (users, tax categories, the menu/hierarchy catalog, embeddings) or scoped as above; every write anywhere in the app requires a permission, with one deliberate exception — a client can `PATCH /invoices/{id}/accept` or `/reject` on their **own** invoice (see Invoicing below) with no permission required at all, since that's an identity check, not a role capability.
+- **Every route requires a valid token.** Reads are either gated by a specific permission (users, tax categories, the menu/hierarchy catalog, embeddings) or scoped as above; every write anywhere in the app requires a permission, with one deliberate exception — a client can `POST /invoices/{id}/accept` or `/reject` on their **own** invoice (see Invoicing below) with no permission required at all, since that's an identity check, not a role capability.
 - `auth/dependencies.py`'s `get_current_user` re-fetches the user from the database on **every** request rather than trusting anything beyond the user id encoded in the token — a role change or a deleted account takes effect immediately, not just once the token happens to expire.
 
 ## Permissions table
 
-Real RBAC, not a hardcoded `if role == "admin"` scattered across routes. Two tables: `permissions` (one row per granular action — `project:create`, `invoice:view_all`, `tax_category:manage`, 25 in total) and `role_permissions` (which roles have which permissions — keyed by the plain role-name string `User.userRole` already uses, not a separate `roles` table, since roles aren't independent entities with their own attributes here).
+Real RBAC, not a hardcoded `if role == "admin"` scattered across routes. Two tables: `permissions` (one row per granular action — `project:create`, `invoice:view_all`, `tax_category:manage`; 37 in total, listed in `auth/permissions.py`) and `role_permissions` (which roles have which permissions — keyed by the plain role-name string `User.userRole` already uses, not a separate `roles` table, since roles aren't independent entities with their own attributes here).
 
 - **`auth/dependencies.py`'s `require_permission("name")`** replaces every former `require_admin` dependency; `user_has_permission(user, name, db)` is the same check for the inline "vendor or scoped" branches that stay everywhere a user can see a restricted slice of something they don't have blanket access to.
 - **Deliberately fine-grained** — one permission per resource+action (`user:create`, `user:update`, `user:delete`, not one `user:manage`) — because the whole point is letting a future role (`staff`, `chef`, anticipated in this project's original notes but never built) get a genuinely different subset of capabilities than vendor, not just "less than vendor." A few low-stakes, purely-internal areas (tax categories, the hierarchy/knowledge-graph tables, embeddings) are still gated by one coarse permission each, since there's no real scenario yet where a role needs some-but-not-all of those.
-- **Today only `vendor` has any rows in `role_permissions`** (all 25) — `client` has none, because a client's access is entirely identity/resource-scoped (the bullet points above), not permission-table-driven. Granting a new role a specific capability — e.g. letting `staff` create menu items — is now a single `INSERT INTO role_permissions` with **no code change and no redeploy**, verified for real: created a `staff` user with zero permissions (got a real `403`), granted it `menu_item:create` via one SQL insert, and the exact same request succeeded immediately.
-- **The seed list lives in exactly one place**, `auth/permissions.py` — imported by both the real Alembic migration (`f9c2faedaeb0_...`) and the test suite's `conftest.py` (which builds its schema via `Base.metadata.create_all()`, bypassing Alembic entirely, so it needs its own seeding step). Two hand-maintained copies of this list was exactly the kind of drift that caused a real bug earlier in this project's hierarchy-tree work — not repeating that mistake here.
+- **`vendor` and `platform_admin` hold the rows in `role_permissions`.** `platform_admin` has all 37. `vendor` has 32: it lacks the five organization-wide ones (`org:list`, `org:view_all`, `org:create`, `org:delete`, `user:grant_platform_admin`), because granting them to every vendor would let one caterer see or edit other caterers' organizations. `client` has none, because a client's access is entirely identity/resource-scoped (the bullet points above), not permission-table-driven. Granting a new role a specific capability — e.g. letting `staff` create menu items — is now a single `INSERT INTO role_permissions` with **no code change and no redeploy**, verified for real: created a `staff` user with zero permissions (got a real `403`), granted it `menu_item:create` via one SQL insert, and the exact same request succeeded. Since BE-22 each role's permission set is cached in memory for 60 seconds (`auth/access.py`), so a new grant takes effect within a minute, still with no restart; `clear_permission_cache()` applies it at once.
+- **Access checks are written once (BE-22), in `auth/access.py`:** `ensure_project_access` (has the view-all permission, or is linked to the project) and `ensure_own_or_permission` (has the view-all permission, or the record is their own: their profile, their org, an invoice billed to them). Routes call these instead of repeating the condition.
+- **The seed list lives in exactly one place**, `auth/permissions.py` — imported by both the baseline Alembic migration (`b1717c5e72f7_baseline_schema.py`) and the test suite's `conftest.py` (which builds its schema via `Base.metadata.create_all()`, bypassing Alembic entirely, so it needs its own seeding step). Two hand-maintained copies of this list was exactly the kind of drift that caused a real bug earlier in this project's hierarchy-tree work — not repeating that mistake here.
 
 ## Invoicing
 
 - **Invoices belong to a project**, not just a user (`Invoice.projectAssociatedTo`) — a project can have several over its lifecycle (deposit, balance, revisions), which is why this is a real foreign key, not the one-invoice-per-project field it replaced (`Project.project_invoice`, declared in the schema for a long time but never actually populated or queried by anything — removed once the real link existed).
 - **`Project.finalInvoiceId`** points at the one invoice, among possibly several, that the client actually went ahead with — never inferred automatically from status or recency, only ever set explicitly via `PATCH /projects/{id}/final-invoice/{invoice_id}` (vendor-only, validates the invoice actually belongs to that project before accepting it).
 - **A PDF is generated for every invoice**, automatically, on both creation and every subsequent update (`services/invoice_pdf.py`, `reportlab` — no system-level dependencies, unlike `weasyprint`) — generate-and-store, not generate-on-demand, so `GET /invoices/{id}/pdf` is always serving the invoice's current state, never a stale creation-time snapshot.
-- **A client can accept or reject their own invoice** (`PATCH /invoices/{id}/accept` / `/reject`) — the one place in the entire app where a non-vendor can write anything. Doing so sets a real `Accepted` status (kept distinct from `Paid` — agreeing to an invoice and payment actually being received are different events) or `Declined`, and notifies **both** the client and the project's vendor — see Notifications below for how, which replaces the plain-boolean flag this used to set.
+- **A client can accept or reject their own invoice** (`POST /invoices/{id}/accept` / `/reject`) — the one place in the entire app where a non-vendor can write anything. Doing so sets a real `Accepted` status (kept distinct from `Paid` — agreeing to an invoice and payment actually being received are different events) or `Declined`, and notifies **both** the client and the project's vendor — see Notifications below for how, which replaces the plain-boolean flag this used to set.
 - Two real Postgres/SQLAlchemy issues surfaced building this, worth knowing if you touch this code: `Invoice.project` needed an explicit `foreign_keys=` once `Project.finalInvoiceId` created a second FK path between the same two tables (otherwise SQLAlchemy can't tell which column defines the relationship), and that same mutual-FK cycle silently broke `Base.metadata.create_all()`/`drop_all()` for the test database until the newer FK was marked `use_alter=True`.
+- **Payments** are recorded by the vendor (offline: cash, cheque, transfer), only on accepted invoices, and never beyond the remaining balance. The invoice row is locked while a payment is recorded or voided, so simultaneous payments can't overpay. The payment that clears the balance marks the invoice `Paid`, and voiding a payment moves it back to `Accepted`.
+- **`billing_info`** keeps a per-subproject summary (invoiced, paid, balance, status, next due date), recomputed in the same transaction as every invoice or payment change. `overdue` is worked out when it's read.
+- **Due dates** default to 7 days before the event.
 
 ## Notifications
 
 A real per-event log (`notifications` table), not the single `User.hasNotification` boolean it replaced — a user can have several independent notifications outstanding at once, each with its own state, not just one flag for "something happened."
 
-- **`seenAt` and `readAt` are genuinely distinct states**, both nullable (null = hasn't happened yet): `seenAt` means it showed up in the user's feed, `readAt` means they explicitly acknowledged it. `PATCH /notifications/{id}/seen` and `PATCH /notifications/{id}/read` set them independently — marking something read also backfills `seenAt` if it wasn't already set (reading implies having seen it), but marking it seen does **not** set `readAt`.
+- **`seenAt` and `readAt` are genuinely distinct states**, both nullable (null = hasn't happened yet): `seenAt` means it showed up in the user's feed, `readAt` means they explicitly acknowledged it. `POST /notifications/{id}/seen` and `POST /notifications/{id}/read` set them independently — marking something read also backfills `seenAt` if it wasn't already set (reading implies having seen it), but marking it seen does **not** set `readAt`.
 - **`GET /notifications/unread`** returns every notification where `readAt IS NULL`, ordered newest-first — "unread" is defined by `readAt`, not `seenAt`, since seen-but-unread is the meaningful "still needs attention" state.
 - **Every route here is self-service, scoped by identity, not the permissions table** — a notification belongs to exactly one user (`Notification.userId`), and nobody (not even a vendor) reads or acknowledges someone else's on their behalf. Trying to anyway returns a `403`.
 - **Triggered as a side effect, never called directly by a route**: a user being created (notifies whoever sent the invite, via `User.createdBy` — not the new user themselves), an invoice being generated (notifies the billed client), and an invoice being accepted or rejected (notifies both the client and the project's vendor).
@@ -76,15 +139,17 @@ Two renames applied across the whole app, schema included — worth understandin
 - **`Service` → `Subproject`** (the per-project catering engagement entity — cuisine, guest count, venue, date — one project can have several). This one resolves a real naming collision, not just a wording preference: `services/` is this app's service-*layer* convention (`services/users.py`, `services/invoices.py`, the business-logic layer between routes and models), and `services/service.py` for the *entity* was confusing on sight in a way `services/subproject.py` isn't.
 - Both renames reached the live database via real Alembic migrations — column/table/type renames plus a data migration (`UPDATE user_data SET role = 'vendor' WHERE role = 'admin'`), not a drop-and-recreate — so existing rows survived. `permissions`/`role_permissions` entries follow the same pattern (`subproject:view_all`, `subproject:create`, etc.).
 
-## Schema ownership — a deliberate fork from Prisma, not a port
+## Schema ownership
 
-This repo's SQLAlchemy models (`user_data`, `projects`, `invoices`, `subprojects`) are a **new domain model, built independently as needed** — not a port of `madras-menu-studio`'s `Event`/`Occasion`/`PriceTier`. That earlier plan (port the existing Prisma schema unchanged) is explicitly abandoned; the design has changed enough that these two schemas now coexist permanently in the same database rather than one replacing the other on a timeline.
+This repo's SQLAlchemy models are a **new domain model, built independently as needed** — not a port of `madras-menu-studio`'s Prisma schema. The two schemas used to share one database, with an `OWNED_TABLES` allowlist in `alembic/env.py` keeping Alembic away from the Prisma tables.
 
-`tax_categories`, `menu_items`, and `item_relationships` are the one exception — modeled here in SQLAlchemy too, but only for querying/writing against Prisma's existing tables, never for Alembic to alter. **`alembic/env.py` enforces this structurally**, not just by convention: an `include_object` hook restricts every autogenerate diff to an explicit `OWNED_TABLES` allowlist (`user_data`, `projects`, `invoices`, `subprojects`, `user_projects`, `menu_item_embeddings`, `permissions`, `role_permissions`, `notifications`). This exists because the very first autogenerate run — before this hook — proposed dropping all 14 of `madras-menu-studio`'s Prisma-managed tables, since nothing in this app's metadata declared them yet. That was caught by hand before applying it, but with the two schemas now coexisting indefinitely, "catch it by eye every time" isn't a strong enough safety net — verified afterward with a real autogenerate run: before the fix, `tax_categories`/`menu_items`/`item_relationships` incorrectly showed up as "detected added table" (a different symptom of the same underlying problem — `include_name`, tried first, excludes a table from only one side of the reflected-vs-metadata comparison, not both); switching to `include_object` produces a genuinely empty diff against the real database.
+As of 2026-10-02 the Prisma tables are gone. The database was torn down and rebuilt from a single baseline migration (`b1717c5e72f7_baseline_schema.py`) that creates every table this backend uses — including the formerly Prisma-managed `menu_items`, `item_relationships`, `tax_categories`, `price_tiers` and `live_stations`, whose foreign-key rules and column defaults are now declared on the models. Alembic owns the whole schema, so the allowlist was removed. The old migration history (`e0e2badceeaf` .. `7ded919b192b`) is in git history only; it started from the Prisma schema and could never build a database from empty.
+
+**ID type (C9, 2026-10-05):** every table uses native Postgres `uuid` IDs. The Prisma-era tables (`menu_items`, `tax_categories`, `item_relationships`, `menu_item_embeddings`, `live_stations`, `price_tiers`) had text IDs until migrations `6130c6ea72ee` and `9858e3197678`, which cast them in place; every existing value was already a UUID string, so no ID changed. Reason: the CRM tables were already UUID, and joins between the two sides (e.g. menus linked to subprojects) would otherwise need casts. New tables should use `UUID(as_uuid=True)` with `default=uuid.uuid4` (no parentheses), and API schemas and path parameters should type IDs as `UUID`.
 
 ## Local dev database
 
-Runs via Docker (`docker-compose.yml` + `docker/Dockerfile`) — switched from Postgres.app because it was noticeably slow on this machine. Image is `pgvector/pgvector:pg16` (pgvector pre-installed and pre-enabled via `docker/init/01-enable-pgvector.sql`, even though nothing here uses vectors yet — cheap to bake in now versus a rebuild+reload later when the embeddings work starts). Listens on host port `5433` (not `5432`, so it never conflicts with Postgres.app). Data lives in a Docker-managed named volume, not a path on the laptop's disk.
+Runs via Docker (`docker-compose.yml` + `docker/Dockerfile`) — switched from Postgres.app because it was noticeably slow on this machine. Image is `pgvector/pgvector:pg16` (pgvector pre-installed and pre-enabled via `docker/init/01-enable-pgvector.sql`, used by the `menu_item_embeddings` table and its HNSW index). Listens on host port `5433` (not `5432`, so it never conflicts with Postgres.app). Data lives in a Docker-managed named volume, not a path on the laptop's disk.
 
 ```bash
 cd ~/madras-menu-backend
@@ -103,11 +168,11 @@ JOIN menu_items p ON p.id = r.to_item_id
 ORDER BY parent, child;
 ```
 
-then `SELECT child, parent, confidence FROM item_relationships_readable;` in `psql`. Not declared in `schema.prisma`, so it won't show up in Prisma Studio — and it needs recreating any time the Docker volume is wiped, since it isn't captured by `db push`/`db seed`.
+then `SELECT child, parent, confidence FROM item_relationships_readable;` in `psql`. It isn't part of the Alembic migrations, so it needs recreating any time the database is rebuilt.
 
 ## The classification pipeline, step by step
 
-Moved to [`docs/ETL_PIPELINE.md`](docs/ETL_PIPELINE.md) — the full elaborate version, covering both how the tree actually got to 682 items (the manual pipeline) and the embedding-driven design being built now (every stage mapped to its real FastAPI endpoint, including the node/self-parent/cycle checks and the exact `item_relationships` write path).
+Moved to the [ETL Pipeline](https://github.com/JyothirmaiKondepudi/madras-menu-backend/wiki/ETL-Pipeline) wiki page — the full elaborate version, covering both how the tree was built by hand (the manual pipeline) and the embedding-driven design being built now (every stage mapped to its real FastAPI endpoint, including the node/self-parent/cycle checks and the exact `item_relationships` write path).
 
 ## What's actually built
 
@@ -132,7 +197,7 @@ Moved to [`docs/ETL_PIPELINE.md`](docs/ETL_PIPELINE.md) — the full elaborate v
 | 4 | 529 | 70 | `Chicken Biryani` manually connected to `Basmati rice` (see design note above); `Wada`/`Vada Pav` cuisine-mismatch caught |
 | 5 | 679 | 85 | `Goat Biryani`/`Hyderabadi Dhum Biryani` join the `Basmati rice` family; `Gajar ka Halwa` and `Gobi Manchurian` reclassifications |
 
-**Current: 679 / 1,456 real items loaded (47%), 85 edges, ~37 root trees.**
+**Last recorded: 682 / 1,456 real items (47%) and 88 edges.** The table stops at batch 5 (679 / 85); the last three items and edges aren't broken out. These figures come from the database used before the 2026-10-02 rebuild; the local database currently holds no catalog rows, so they need re-checking once the catalog is loaded again.
 
 A process bug worth recording, not just the data: the JSON file used to track "already classified" state between batches fell out of sync with the database twice — once when a manual edge was added directly via SQL, once when a batch's results were never copied into the tracking file at all. Both times the database itself stayed correct; the bug was purely in hand-maintained tracking state, re-derived ad hoc each batch instead of going through one tested function. **Fixed structurally, not just patched**: `hierarchy/mutations.py` now provides real `insert_edge`/`update_edge`/`delete_edge` functions that read and write the database directly — no separate tracking file to keep in sync at all going forward.
 
@@ -140,7 +205,7 @@ A real, recurring data-quality signal worth a human pass eventually: near-duplic
 
 ## The tree, visually
 
-Five representative subtrees out of the current 33 — not all of them (GitHub shrinks a Mermaid diagram to fit the page width regardless of how many disconnected pieces are in it, so more trees per diagram means smaller text, not a bigger picture). Regenerate any of these, or the full set, with `hierarchy/traverse.py` (see below).
+Five representative subtrees out of the 33 root trees last counted — not all of them (GitHub shrinks a Mermaid diagram to fit the page width regardless of how many disconnected pieces are in it, so more trees per diagram means smaller text, not a bigger picture). Regenerate any of these, or the full set, with `hierarchy/traverse.py` (see below).
 
 ### `Basmati rice` — multi-level, and why `Chicken Biryani` lives here directly
 
@@ -224,13 +289,22 @@ python3 hierarchy/traverse.py --mermaid tree_diagram.md
 ## Next steps (not yet done)
 
 **Backend (auth/invoicing side):**
-- Google Sign-In, SendGrid-based invite emails, and refresh tokens — all explicitly deferred, not forgotten.
+- Google Sign-In, SendGrid-based invite emails, and refresh tokens — all explicitly deferred, not forgotten. Invited clients exist as users with no password, but there's no "set your first password" endpoint yet.
+- Idempotency keys for payments and invoice creation, so a retried request isn't recorded twice.
+- A payment reminder scheduler, using `billing_info.next_due_date`.
 - The permissions table mechanism is real and working, but no `staff`/`chef` role actually exists yet with a real, considered subset of permissions granted — that's now a data decision (which rows to insert), not an engineering one.
 - The actual client/vendor dashboards — this backend can answer "which projects/invoices are mine" and "who needs notifying" (via `/notifications/unread`), but no aggregation endpoint or frontend exists yet.
 - Porting `MenuGenerator.ts`/`pricingService.ts`/`noRepeatLedger.ts` from the old repo (the original "Step 1," still on hold).
+- Pricing endpoints and quote calculation on top of the pricing tables ([Pricing model](https://github.com/JyothirmaiKondepudi/madras-menu-backend/wiki/Pricing-Model) wiki page).
+- Enforcing `orgDisabled` at login and on every request, so the admin service can lock out a caterer.
+- The shared catalog (`menu_items`, `tax_categories`, `item_relationships`, embeddings) has no `org_id`, but every vendor can write to it: either scope it per organization or restrict writes to `platform_admin`.
+- Invoice PDFs are written to local disk (`storage/invoices/`), which doesn't survive restarts or work across several instances: move them to object storage (BE-20).
+- Login hardening: rate limiting, a minimum password length, and invalidating tokens after a password change.
+- CI that runs the tests and `alembic upgrade head` on an empty database (the tests build the schema with `create_all`, so migration drift goes unnoticed).
+- `LiveStation` (`models/live_station.py`) has a table but no API; build it or drop it.
 
 **Hierarchy / classification pipeline (paused):**
-- The automated classify stage is built (`hierarchy/candidates.py` — embedding-based retrieval — plus `hierarchy/classify.py`) but blocked on a real infrastructure decision: local Ollama models don't fit this dev machine's 8GB RAM without risking a hang, and Gemini's free tier caps at 20 requests/day — nowhere near enough for the ~1,367 still-unclassified items. Needs either paid Gemini billing, a different model, or a different machine.
+- The automated classify stage isn't in this repo: a prototype (`hierarchy/candidates.py` for embedding-based retrieval, `hierarchy/classify.py` for the Ollama/Gemini call) was written in commit `31f268e` and removed again in `5a8f9a0`. Bringing it back is blocked on a real infrastructure decision: local Ollama models don't fit this dev machine's 8GB RAM without risking a hang, and Gemini's free tier caps at 20 requests/day — nowhere near enough for the ~1,367 still-unclassified items. Needs either paid Gemini billing, a different model, or a different machine.
 - At real catalog scale, "send everyone the whole candidate list" was already known not to scale (see below) — the embedding-retrieval design replaces that, but hasn't been run past a handful of items given the above.
 - A proper review UI, replacing "read a markdown file."
 

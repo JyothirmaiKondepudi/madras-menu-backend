@@ -3,8 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 
-def get_all_menu_items(db: Session):
-    return db.execute(select(MenuItem)).scalars().all()
+def menu_items_query():
+    return select(MenuItem)
+
 
 def get_menu_item_by_id(item_id, db: Session):
     return db.get(MenuItem, item_id)
@@ -32,7 +33,7 @@ def add_new_menu_item(new_item, db: Session):
         sourceDocs=new_item.sourceDocs,
     )
     db.add(created_item)
-    db.commit()
+    db.flush()
     db.refresh(created_item)
     return created_item
 
@@ -44,7 +45,7 @@ def update_menu_item_by_id(item_id, updates, db: Session):
     for field, value in updates.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
 
-    db.commit()
+    db.flush()
     db.refresh(item)
     return item
 
@@ -54,5 +55,5 @@ def delete_menu_item_by_id(item_id, db: Session):
         return None
 
     db.delete(item)
-    db.commit()
+    db.flush()
     return item

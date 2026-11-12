@@ -4,6 +4,7 @@ __pycache__/
 venv/
 .env
 .env.local
+.env.local.example
 *.egg-info/
 
 # Generated reports — reproducible from propose_hierarchy.py, not source

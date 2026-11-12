@@ -1,16 +1,5 @@
-"""
-The response shape every LLM provider must produce for the hierarchy
-prototype. Kept provider-agnostic on purpose: Vertex AI's `response_schema`
-param, Claude's tool-use input schema, or a hand-parsed JSON string from
-anything else can all target this same structure — the validation and
-report code in this package only ever sees plain dicts matching it, never
-anything provider-specific.
-
-One proposal per input MenuItem. `parent_id: null` means "this is a root
-dish" (no parent_of edge gets written for it). See the plan doc
-(~/.claude/plans/declarative-baking-cookie.md) for why this is a generic
-edge shape rather than a dedicated parentId column.
-"""
+"""Provider-agnostic response schema for hierarchy proposals: one entry per menu
+item, with parent_id null meaning it's a root dish."""
 
 RESPONSE_JSON_SCHEMA = {
     "type": "object",
