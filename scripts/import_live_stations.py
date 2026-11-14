@@ -12,7 +12,8 @@ CSV columns (header row required; names are matched ignoring case and spaces):
     name               required
     region             required, cuisine tag such as north_indian
     veg_nonveg         required: veg, nonveg or both
-    price_per_person   required, e.g. 8.50
+    price_per_person   optional, e.g. 8.50; leave empty if not priced yet
+    meals              optional: breakfast, lunch, dinner, separated by ; or |
     min_guests         optional, default 1
     description        optional
     equipment_needed   optional, separated by ; or |
@@ -36,7 +37,8 @@ from schemas.pricing import LiveStationCreate  # noqa: E402
 
 _FIELDS = {
     "name": "name", "region": "region", "vegnonveg": "vegNonveg",
-    "priceperperson": "pricePerPerson", "minguests": "minGuests", "description": "description",
+    "priceperperson": "pricePerPerson", "meals": "mealPeriods", "mealperiods": "mealPeriods",
+    "minguests": "minGuests", "description": "description",
     "equipmentneeded": "equipmentNeeded", "active": "active",
 }
 
@@ -57,8 +59,11 @@ def read_rows(path: str) -> tuple[list[LiveStationCreate], list[str]]:
             values = {columns[h]: (v or "").strip() for h, v in row.items() if columns.get(h) and (v or "").strip()}
             if not values:
                 continue  # blank line
-            if "equipmentNeeded" in values:
-                values["equipmentNeeded"] = [p.strip() for p in re.split(r"[;|]", values["equipmentNeeded"]) if p.strip()]
+            for field in ("equipmentNeeded", "mealPeriods"):
+                if field in values:
+                    values[field] = [p.strip() for p in re.split(r"[;|]", values[field]) if p.strip()]
+            if "mealPeriods" in values:
+                values["mealPeriods"] = [p.lower() for p in values["mealPeriods"]]
             if "active" in values:
                 values["active"] = values["active"].lower() in {"yes", "y", "true", "1"}
             if "vegNonveg" in values:
@@ -107,12 +112,14 @@ def main() -> None:
                 for field, value in station.model_dump().items():
                     setattr(existing, field, value)
                 updated += 1
+        unpriced = sum(station.pricePerPerson is None for station in stations)
+        note = f" {unpriced} have no price yet." if unpriced else ""
         if args.dry_run:
             db.rollback()
-            print(f"Dry run: would add {added} and update {updated} live stations.")
+            print(f"Dry run: would add {added} and update {updated} live stations.{note}")
         else:
             db.commit()
-            print(f"Added {added} and updated {updated} live stations.")
+            print(f"Added {added} and updated {updated} live stations.{note}")
     finally:
         db.close()
 

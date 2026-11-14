@@ -7,6 +7,7 @@ from sqlalchemy import (
     UUID,
     ForeignKey,
     ARRAY,
+    UniqueConstraint,
     func,
     text,
 )
@@ -15,10 +16,27 @@ from database import Base
 
 
 class MenuItem(Base):
+    """A dish in one caterer's catalog. Each organization has its own dishes;
+    routes only ever read or change the caller's organization's dishes."""
+
     __tablename__ = "menu_items"
+    __table_args__ = (
+        # names are unique per caterer, not across the app
+        UniqueConstraint("org_id", "name", name="menu_items_org_name_key"),
+        # target for composite foreign keys (item_relationships) that keep a
+        # link between two dishes inside one caterer's catalog
+        UniqueConstraint("org_id", "id", name="menu_items_org_item_key"),
+    )
 
     id = Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column("name", String, nullable=False, unique=True)
+    orgId = Column(
+        "org_id",
+        UUID(as_uuid=True),
+        ForeignKey("organizations.org_id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    name = Column("name", String, nullable=False)
     course = Column("course", String, nullable=False)
     vegNonveg = Column("veg_nonveg", String, nullable=False)
     cuisineTags = Column("cuisine_tags", ARRAY(String))

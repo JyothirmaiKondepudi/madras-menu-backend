@@ -1,26 +1,8 @@
 """BE-07: an organization's business profile, rate card and equipment list."""
 import pytest
-from sqlalchemy.orm import sessionmaker
 
-from auth.security import hash_password
-from models import Organization, User
 
 PASSWORD = "correct-horse-battery-staple"
-
-
-@pytest.fixture()
-def other_vendor(client, engine):
-    """A vendor in a second organization, with their own auth headers."""
-    db = sessionmaker(bind=engine)()
-    org = Organization(orgName="Other Caterers", orgEmail="other@example.com", orgDisabled=False)
-    db.add(org)
-    db.flush()
-    db.add(User(fullName="Other Vendor", userEmail="other.vendor@example.com", userRole="vendor",
-                userOrg=org.orgId, passwordHash=hash_password(PASSWORD)))
-    db.commit()
-    db.close()
-    token = client.post("/auth/login", json={"email": "other.vendor@example.com", "password": PASSWORD}).json()
-    return {"Authorization": f"Bearer {token['access_token']}"}
 
 
 def _client_auth(client, test_client_login):

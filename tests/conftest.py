@@ -232,3 +232,24 @@ def test_menu_item(client, vendor_auth_headers):
     }, headers=vendor_auth_headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+@pytest.fixture()
+def other_vendor(client, engine):
+    """A vendor in a second organization, with their own auth headers."""
+    from sqlalchemy.orm import sessionmaker
+    from models import Organization, User
+    from auth.security import hash_password
+
+    db = sessionmaker(bind=engine)()
+    org = Organization(orgName="Other Caterers", orgEmail="other@example.com", orgDisabled=False)
+    db.add(org)
+    db.flush()
+    db.add(User(fullName="Other Vendor", userEmail="other.vendor@example.com", userRole="vendor",
+                userOrg=org.orgId, passwordHash=hash_password("correct-horse-battery-staple")))
+    db.commit()
+    db.close()
+    token = client.post(
+        "/auth/login", json={"email": "other.vendor@example.com", "password": "correct-horse-battery-staple"}
+    ).json()
+    return {"Authorization": f"Bearer {token['access_token']}"}
