@@ -2,7 +2,9 @@
 
 Owned by one organization, like the rate card and equipment list. Any
 pricing method can add a station to a quote; the quote copies its price, so
-editing a station never changes a quote already given. `scripts/import_live_stations.py`
+editing a station never changes a quote already given. A station can be
+saved before it has a price; it can't go on a quote until it has one.
+`scripts/import_live_stations.py`
 loads a caterer's list from a CSV file.
 """
 import uuid
@@ -13,13 +15,14 @@ from sqlalchemy import (
 )
 
 from database import Base
-from models.choices import LiveStationDiet, check_in
+from models.choices import LiveStationDiet, MealPeriod, check_all_in, check_in
 
 
 class LiveStation(Base):
     __tablename__ = "live_stations"
     __table_args__ = (
         CheckConstraint(check_in("veg_nonveg", LiveStationDiet), name="live_stations_veg_nonveg_check"),
+        CheckConstraint(check_all_in("meal_periods", MealPeriod), name="live_stations_meal_periods_check"),
         CheckConstraint("price_per_person >= 0", name="live_stations_price_check"),
         CheckConstraint("min_guests > 0", name="live_stations_min_guests_check"),
         CheckConstraint("length(trim(name)) > 0", name="live_stations_name_check"),
@@ -38,7 +41,12 @@ class LiveStation(Base):
     region = Column("region", String, nullable=False)
     vegNonveg = Column("veg_nonveg", String, nullable=False)
     description = Column("description", String)
-    pricePerPerson = Column("price_per_person", Numeric(12, 2), nullable=False)
+    # NULL until the caterer sets a price; a quote can't use an unpriced station
+    pricePerPerson = Column("price_per_person", Numeric(12, 2))
+    # breakfast / lunch / dinner; empty means not specified
+    mealPeriods = Column(
+        "meal_periods", ARRAY(String), nullable=False, server_default=text("'{}'"), default=list,
+    )
     minGuests = Column("min_guests", Integer, nullable=False, default=1, server_default="1")
     equipmentNeeded = Column(
         "equipment_needed", ARRAY(String), nullable=False, server_default=text("'{}'"), default=list,

@@ -116,6 +116,14 @@ class LiveStationDiet(StrEnum):
     BOTH = "both"
 
 
+class MealPeriod(StrEnum):
+    """When in the day a live station is offered (live_stations.meal_periods)."""
+
+    BREAKFAST = "breakfast"
+    LUNCH = "lunch"
+    DINNER = "dinner"
+
+
 class QuoteStatus(StrEnum):
     DRAFT = "draft"
     SENT = "sent"

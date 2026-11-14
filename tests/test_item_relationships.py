@@ -145,7 +145,7 @@ def _link(client, child, parent, headers):
     return client.post("/item-relationships", json={"childId": child["id"], "parentId": parent["id"]}, headers=headers)
 
 
-def test_simultaneous_opposite_links_cant_create_a_loop(client, engine, vendor_auth_headers):
+def test_simultaneous_opposite_links_cant_create_a_loop(client, engine, vendor_auth_headers, test_vendor_login):
     """A under B and B under A at the same moment: without the lock both pass
     the loop check and the tree ends up with A -> B -> A. With it, the second
     waits for the first to commit, sees its edge and is refused."""
@@ -156,6 +156,7 @@ def test_simultaneous_opposite_links_cant_create_a_loop(client, engine, vendor_a
 
     from hierarchy.mutations import HierarchyError, insert_edge
 
+    org = UUID(test_vendor_login["userOrg"])
     a = UUID(_make_item(client, "Dish A", vendor_auth_headers)["id"])
     b = UUID(_make_item(client, "Dish B", vendor_auth_headers)["id"])
     outcome = {}
@@ -163,14 +164,14 @@ def test_simultaneous_opposite_links_cant_create_a_loop(client, engine, vendor_a
     def second():
         with Session(engine) as db:
             try:
-                insert_edge(db, child_id=b, parent_id=a)
+                insert_edge(db, org, child_id=b, parent_id=a)
                 db.commit()
                 outcome["second"] = "linked"
             except HierarchyError as exc:
                 outcome["second"] = str(exc)
 
     with Session(engine) as first:
-        insert_edge(first, child_id=a, parent_id=b)  # holds the lock until commit
+        insert_edge(first, org, child_id=a, parent_id=b)  # holds the lock until commit
         thread = threading.Thread(target=second)
         thread.start()
         thread.join(timeout=1)
@@ -233,18 +234,19 @@ def test_unknown_relationship_type_is_rejected(client, vendor_auth_headers):
     assert resp.status_code == 422
 
 
-def test_database_rejects_own_parent_and_unknown_type(client, engine, vendor_auth_headers):
+def test_database_rejects_own_parent_and_unknown_type(client, engine, vendor_auth_headers, test_vendor_login):
     import pytest
     from sqlalchemy import text
     from sqlalchemy.exc import IntegrityError
 
     item = _make_item(client, "Idli", vendor_auth_headers)
     other = _make_item(client, "Steamed Cake", vendor_auth_headers)
-    sql = text("INSERT INTO item_relationships (id, from_item_id, to_item_id, relationship_type) "
-               "VALUES (gen_random_uuid(), :c, :p, :t)")
+    org = test_vendor_login["userOrg"]
+    sql = text("INSERT INTO item_relationships (id, org_id, from_item_id, to_item_id, relationship_type) "
+               "VALUES (gen_random_uuid(), :o, :c, :p, :t)")
     with pytest.raises(IntegrityError, match="not_own_parent_check"):
         with engine.begin() as conn:
-            conn.execute(sql, {"c": item["id"], "p": item["id"], "t": "parent_of"})
+            conn.execute(sql, {"o": org, "c": item["id"], "p": item["id"], "t": "parent_of"})
     with pytest.raises(IntegrityError, match="relationship_type_check"):
         with engine.begin() as conn:
-            conn.execute(sql, {"c": item["id"], "p": other["id"], "t": "pairs_with"})
+            conn.execute(sql, {"o": org, "c": item["id"], "p": other["id"], "t": "pairs_with"})

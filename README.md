@@ -25,7 +25,7 @@ dish class, and a policy for service charge, tax and rounding. Live stations
 are each caterer's add-on catalog (`scripts/import_live_stations.py` loads
 them from CSV), and quotes keep a frozen copy of every price offered. Models
 in `models/pricing.py`, `models/quote.py` and `models/live_station.py`,
-inputs in `schemas/pricing.py`, migrations `a7b83c91d204` and `bad71e322a9c`. See
+inputs in `schemas/pricing.py`, migrations `a7b83c91d204`, `bad71e322a9c` and `552b37e24963`. See
 [Pricing model](https://github.com/JyothirmaiKondepudi/madras-menu-backend/wiki/Pricing-Model) (wiki) for onboarding, conditions and limits.
 This is the data model only; pricing endpoints and the quote calculator aren't built yet.
 
@@ -84,7 +84,7 @@ Real, working, not a stub. Email + password only for now — Google Sign-In was 
 - **Users are disabled, not deleted**, once they have history (`POST /users/{id}/disable` / `enable`). Disabling an *organization* (`orgDisabled`) does not yet block its users from logging in.
 - **Authorization is a real permissions table, not hardcoded role checks** — see its own section below. Whatever a role *isn't* explicitly granted, it doesn't have.
 - Beyond the table: users are also scoped to their own data by identity/relationship where a blanket permission doesn't apply — `user_projects` (a many-to-many table that existed in the schema but was never wired up until this work) for projects/subprojects, and `invoiceAssignedTo` directly for invoices — a deliberately different rule, since an invoice is billed to a *person*, not scoped by project the way subprojects are (see Invoicing below for how invoices relate to projects instead).
-- **Every route requires a valid token.** Reads are either gated by a specific permission (users, tax categories, the menu/hierarchy catalog, embeddings) or scoped as above; every write anywhere in the app requires a permission, with one deliberate exception — a client can `POST /invoices/{id}/accept` or `/reject` on their **own** invoice (see Invoicing below) with no permission required at all, since that's an identity check, not a role capability.
+- **Every route requires a valid token.** Reads are either gated by a specific permission (users, tax categories, the menu/hierarchy catalog, embeddings) or scoped as above; dishes, their family links and dish search only ever cover the caller's own organization; every write anywhere in the app requires a permission, with one deliberate exception — a client can `POST /invoices/{id}/accept` or `/reject` on their **own** invoice (see Invoicing below) with no permission required at all, since that's an identity check, not a role capability.
 - `auth/dependencies.py`'s `get_current_user` re-fetches the user from the database on **every** request rather than trusting anything beyond the user id encoded in the token — a role change or a deleted account takes effect immediately, not just once the token happens to expire.
 
 ## Permissions table
@@ -146,6 +146,8 @@ This repo's SQLAlchemy models are a **new domain model, built independently as n
 As of 2026-10-02 the Prisma tables are gone. The database was torn down and rebuilt from a single baseline migration (`b1717c5e72f7_baseline_schema.py`) that creates every table this backend uses — including the formerly Prisma-managed `menu_items`, `item_relationships`, `tax_categories`, `price_tiers` and `live_stations`, whose foreign-key rules and column defaults are now declared on the models. Alembic owns the whole schema, so the allowlist was removed. The old migration history (`e0e2badceeaf` .. `7ded919b192b`) is in git history only; it started from the Prisma schema and could never build a database from empty.
 
 **ID type (C9, 2026-10-05):** every table uses native Postgres `uuid` IDs. The Prisma-era tables (`menu_items`, `tax_categories`, `item_relationships`, `menu_item_embeddings`, `live_stations`, `price_tiers`) had text IDs until migrations `6130c6ea72ee` and `9858e3197678`, which cast them in place; every existing value was already a UUID string, so no ID changed. Reason: the CRM tables were already UUID, and joins between the two sides (e.g. menus linked to subprojects) would otherwise need casts. New tables should use `UUID(as_uuid=True)` with `default=uuid.uuid4` (no parentheses), and API schemas and path parameters should type IDs as `UUID`.
+
+**Dishes per caterer (2026-11-13):** migration `feecf9d204b2` gives `menu_items` and `item_relationships` an `org_id`. Dish names are unique per caterer, and composite foreign keys keep a parent link inside one caterer's catalog. Every dish, hierarchy and embedding route works only on the caller's organization. A database that already has dishes must say which organization owns them, since a migration can't guess: `alembic -x dish_org=<org uuid> upgrade head`. An empty database needs no argument.
 
 ## Local dev database
 
@@ -297,7 +299,8 @@ python3 hierarchy/traverse.py --mermaid tree_diagram.md
 - Porting `MenuGenerator.ts`/`pricingService.ts`/`noRepeatLedger.ts` from the old repo (the original "Step 1," still on hold).
 - Pricing endpoints and quote calculation on top of the pricing tables ([Pricing model](https://github.com/JyothirmaiKondepudi/madras-menu-backend/wiki/Pricing-Model) wiki page).
 - Enforcing `orgDisabled` at login and on every request, so the admin service can lock out a caterer.
-- The shared catalog (`menu_items`, `tax_categories`, `item_relationships`, embeddings) has no `org_id`, but every vendor can write to it: either scope it per organization or restrict writes to `platform_admin`.
+- `tax_categories` is still shared by every caterer and any vendor can write to it: scope it per organization or restrict writes to `platform_admin`. (Dishes, their family links and embeddings are per caterer since migration `feecf9d204b2`.)
+- `hierarchy/traverse.py` and `propose_hierarchy.py` read every caterer's dishes at once; give them an organization argument before a second caterer has dishes.
 - Invoice PDFs are written to local disk (`storage/invoices/`), which doesn't survive restarts or work across several instances: move them to object storage (BE-20).
 - Login hardening: rate limiting, a minimum password length, and invalidating tokens after a password change.
 - CI that runs the tests and `alembic upgrade head` on an empty database (the tests build the schema with `create_all`, so migration drift goes unnoticed).

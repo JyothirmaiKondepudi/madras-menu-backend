@@ -17,10 +17,12 @@ from auth.dependencies import get_current_user, require_permission
 
 router = APIRouter()
 
-# Reads: open to any authenticated user (client, staff, vendor alike) —
-# browsing the dish catalog isn't sensitive the way tax rates or the raw
-# user directory are. Writes: vendor-only, matching "vendor manages the dish
-# library" from the project's business rules.
+# Each caterer has its own dish catalog: every route works only on the
+# caller's organization's dishes, and another organization's dish answers 404.
+# Reads: open to any authenticated user of the organization (client, staff,
+# vendor alike). Writes: vendor-only, matching "vendor manages the dish
+# library" from the project's business rules. The organization always comes
+# from the caller, never from the request body.
 
 
 MENU_ITEM_SORTS = {
@@ -41,7 +43,7 @@ def get_menu_items(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = menu_items_query()
+    stmt = menu_items_query(current_user.userOrg)
     if course is not None:
         stmt = stmt.where(MenuItem.course == course)
     if veg_nonveg is not None:
@@ -59,7 +61,7 @@ def get_menu_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    item = get_menu_item_by_id(item_id, db)
+    item = get_menu_item_by_id(item_id, current_user.userOrg, db)
     if item is None:
         raise HTTPException(status_code=404, detail="menu item not found")
     return item
@@ -70,8 +72,12 @@ def get_menu_item(
     response_model=MenuItemOut,
     dependencies=[Depends(require_permission("menu_item:create"))],
 )
-def add_menu_item(new_item: MenuItemCreate, db: Session = Depends(get_db)):
-    created_item = add_new_menu_item(new_item, db)
+def add_menu_item(
+    new_item: MenuItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    created_item = add_new_menu_item(new_item, current_user.userOrg, db)
     db.commit()
     return created_item
 
@@ -82,9 +88,12 @@ def add_menu_item(new_item: MenuItemCreate, db: Session = Depends(get_db)):
     dependencies=[Depends(require_permission("menu_item:update"))],
 )
 def update_menu_item(
-    item_id: UUID, updates: MenuItemUpdate, db: Session = Depends(get_db)
+    item_id: UUID,
+    updates: MenuItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    updated_item = update_menu_item_by_id(item_id, updates, db)
+    updated_item = update_menu_item_by_id(item_id, current_user.userOrg, updates, db)
     if updated_item is None:
         raise HTTPException(status_code=404, detail="menu item not found")
     db.commit()
@@ -96,8 +105,12 @@ def update_menu_item(
     status_code=204,
     dependencies=[Depends(require_permission("menu_item:delete"))],
 )
-def delete_menu_item(item_id: UUID, db: Session = Depends(get_db)):
-    deleted_item = delete_menu_item_by_id(item_id, db)
+def delete_menu_item(
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    deleted_item = delete_menu_item_by_id(item_id, current_user.userOrg, db)
     if deleted_item is None:
         raise HTTPException(status_code=404, detail="menu item not found")
     db.commit()

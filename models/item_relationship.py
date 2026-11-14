@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, String, DateTime, Index, ForeignKey, text, func, UUID
+from sqlalchemy import CheckConstraint, Column, String, DateTime, Index, ForeignKeyConstraint, text, func, UUID
 from sqlalchemy.dialects.postgresql import JSONB
 import uuid
 from database import Base
@@ -17,6 +17,14 @@ class ItemRelationship(Base):
         CheckConstraint(
             "from_item_id <> to_item_id", name="item_relationships_not_own_parent_check"
         ),
+        ForeignKeyConstraint(
+            ["org_id", "from_item_id"], ["menu_items.org_id", "menu_items.id"],
+            name="item_relationships_from_item_org_fkey", onupdate="CASCADE", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "to_item_id"], ["menu_items.org_id", "menu_items.id"],
+            name="item_relationships_to_item_org_fkey", onupdate="CASCADE", ondelete="RESTRICT",
+        ),
         CheckConstraint(
             "relationship_type IN ('parent_of')",
             name="item_relationships_relationship_type_check",
@@ -24,20 +32,11 @@ class ItemRelationship(Base):
     )
 
     id = Column("id", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    fromItemId = Column(
-        "from_item_id",
-        UUID(as_uuid=True),
-        ForeignKey("menu_items.id", onupdate="CASCADE", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    toItemId = Column(
-        "to_item_id",
-        UUID(as_uuid=True),
-        ForeignKey("menu_items.id", onupdate="CASCADE", ondelete="RESTRICT"),
-        index=True,
-        nullable=False,
-    )
+    # the caterer both dishes belong to; the composite foreign keys below
+    # make a link between two caterers' dishes impossible
+    orgId = Column("org_id", UUID(as_uuid=True), nullable=False, index=True)
+    fromItemId = Column("from_item_id", UUID(as_uuid=True), nullable=False, index=True)
+    toItemId = Column("to_item_id", UUID(as_uuid=True), nullable=False, index=True)
     relationshipType = Column("relationship_type", String, nullable=False)
     relationshipMetadata = Column("metadata", JSONB)
     createdAt = Column(

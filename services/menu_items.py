@@ -1,59 +1,34 @@
+"""A caterer's dish catalog: every function works inside one organization."""
 from models import MenuItem
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-
-def menu_items_query():
-    return select(MenuItem)
+from services.catalog import create_item, delete_item, get_in_org, update_item
 
 
-def get_menu_item_by_id(item_id, db: Session):
-    return db.get(MenuItem, item_id)
+def menu_items_query(org_id):
+    return select(MenuItem).where(MenuItem.orgId == org_id)
 
-def add_new_menu_item(new_item, db: Session):
-    created_item = MenuItem(
-        name=new_item.name,
-        course=new_item.course,
-        vegNonveg=new_item.vegNonveg,
-        cuisineTags=new_item.cuisineTags,
-        priceWeight=new_item.priceWeight,
-        isStaple=new_item.isStaple,
-        servedAsLiveStation=new_item.servedAsLiveStation,
-        allergens=new_item.allergens,
-        dietaryFlags=new_item.dietaryFlags,
-        religionSuitability=new_item.religionSuitability,
-        occasionSuitability=new_item.occasionSuitability,
-        spiceLevel=new_item.spiceLevel,
-        prepMethod=new_item.prepMethod,
-        portionUnit=new_item.portionUnit,
-        costPerPerson=new_item.costPerPerson,
-        taxCategoryId=new_item.taxCategoryId,
-        active=new_item.active,
-        confidence=new_item.confidence,
-        sourceDocs=new_item.sourceDocs,
-    )
-    db.add(created_item)
-    db.flush()
-    db.refresh(created_item)
-    return created_item
 
-def update_menu_item_by_id(item_id, updates, db: Session):
-    item = db.get(MenuItem, item_id)
+def get_menu_item_by_id(item_id, org_id, db: Session):
+    """None if it doesn't exist or belongs to another organization."""
+    return get_in_org(MenuItem, item_id, org_id, db)
+
+
+def add_new_menu_item(new_item, org_id, db: Session):
+    return create_item(MenuItem, new_item, org_id, db)
+
+
+def update_menu_item_by_id(item_id, org_id, updates, db: Session):
+    item = get_menu_item_by_id(item_id, org_id, db)
     if item is None:
         return None
+    return update_item(item, updates, db)
 
-    for field, value in updates.model_dump(exclude_unset=True).items():
-        setattr(item, field, value)
 
-    db.flush()
-    db.refresh(item)
-    return item
-
-def delete_menu_item_by_id(item_id, db: Session):
-    item = db.get(MenuItem, item_id)
+def delete_menu_item_by_id(item_id, org_id, db: Session):
+    item = get_menu_item_by_id(item_id, org_id, db)
     if item is None:
         return None
-
-    db.delete(item)
-    db.flush()
+    delete_item(item, db)
     return item

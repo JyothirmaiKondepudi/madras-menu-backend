@@ -255,6 +255,11 @@ def test_live_stations_belong_to_a_caterer(db):
                               pricePerPerson=Decimal("5")))
     _rejected(db, "live_stations_min_guests_check", LiveStation(orgId=org, name="Pasta", region="italian", vegNonveg="veg",
                               pricePerPerson=Decimal("5"), minGuests=0))
+    _rejected(db, "live_stations_meal_periods_check", LiveStation(orgId=org, name="Brunch", region="american", vegNonveg="veg",
+                              mealPeriods=["brunch"]))
+    # a station can be saved before it has a price
+    db.add(LiveStation(orgId=org, name="Appam", region="south_indian", vegNonveg="veg", mealPeriods=["breakfast", "dinner"]))
+    db.flush()
 
 
 @pytest.fixture()

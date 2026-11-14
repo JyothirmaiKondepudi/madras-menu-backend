@@ -35,3 +35,15 @@ def test_reports_every_problem_and_keeps_nothing_bad(tmp_path):
     assert problems[0] == "unknown columns: colour"
     assert problems[1].startswith("line 2: vegNonveg")
     assert problems[2] == "line 4: 'pasta' appears twice in the file"
+
+
+def test_reads_meals_and_allows_no_price(tmp_path):
+    stations, problems = read_rows(_csv(tmp_path, (
+        "name,meals,veg_nonveg,region,price_per_person\n"
+        "Appam,Breakfast; lunch|dinner,veg,south_indian,\n"
+        "Sushi,lunch;brunch,both,japanese,\n"
+    )))
+    assert [s.name for s in stations] == ["Appam"]
+    assert stations[0].mealPeriods == ["breakfast", "lunch", "dinner"]
+    assert stations[0].pricePerPerson is None
+    assert problems[0].startswith("line 3: mealPeriods")

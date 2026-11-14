@@ -6,6 +6,10 @@ it, two requests could each pass the loop check before the other saved
 (A under B, and B under A, at the same moment) and together create a loop.
 With it, the second waits for the first to commit and then checks against the
 saved tree. Hierarchy edits are rare, so waiting costs nothing noticeable.
+
+Each caterer has its own tree: every function takes the caller's org_id, and
+a dish of another organization counts as not existing. The database backs
+this up with composite foreign keys, so a link can't join two organizations.
 """
 
 from uuid import UUID
@@ -34,13 +38,14 @@ def _check_type(relationship_type: str) -> None:
         raise HierarchyError(f"unknown relationship type {relationship_type!r}")
 
 
-def _item_exists(db: Session, item_id: UUID) -> bool:
-    return db.scalar(select(exists().where(MenuItem.id == item_id)))
+def _item_exists(db: Session, item_id: UUID, org_id: UUID) -> bool:
+    return db.scalar(select(exists().where(MenuItem.id == item_id, MenuItem.orgId == org_id)))
 
 
-def _edge(db: Session, child_id: UUID, relationship_type: str) -> ItemRelationship | None:
+def _edge(db: Session, child_id: UUID, relationship_type: str, org_id: UUID) -> ItemRelationship | None:
     return db.scalars(
         select(ItemRelationship).where(
+            ItemRelationship.orgId == org_id,
             ItemRelationship.fromItemId == child_id,
             ItemRelationship.relationshipType == relationship_type,
         )
@@ -68,11 +73,11 @@ def _is_ancestor(db: Session, candidate: UUID, of_item: UUID, relationship_type:
     return db.scalar(select(exists().where(ancestors.c.item_id == candidate)))
 
 
-def _validate_link(db: Session, child_id: UUID, parent_id: UUID, relationship_type: str) -> None:
+def _validate_link(db: Session, child_id: UUID, parent_id: UUID, relationship_type: str, org_id: UUID) -> None:
     _check_type(relationship_type)
-    if not _item_exists(db, child_id):
+    if not _item_exists(db, child_id, org_id):
         raise HierarchyError(f"child_id {child_id} does not exist in menu_items")
-    if not _item_exists(db, parent_id):
+    if not _item_exists(db, parent_id, org_id):
         raise HierarchyError(f"parent_id {parent_id} does not exist in menu_items")
     if child_id == parent_id:
         raise HierarchyError("an item cannot be its own parent")
@@ -90,6 +95,7 @@ def _metadata(confidence: str | None, reason: str | None) -> dict | None:
 
 def insert_edge(
     db: Session,
+    org_id: UUID,
     child_id: UUID,
     parent_id: UUID,
     relationship_type: str = "parent_of",
@@ -100,12 +106,13 @@ def insert_edge(
     child would be its own parent, this would create a cycle, or the child
     already has an edge of this type (use update_edge to change it)."""
     _lock_hierarchy(db)
-    _validate_link(db, child_id, parent_id, relationship_type)
-    if _edge(db, child_id, relationship_type) is not None:
+    _validate_link(db, child_id, parent_id, relationship_type, org_id)
+    if _edge(db, child_id, relationship_type, org_id) is not None:
         raise HierarchyError(
             f"{child_id} already has a {relationship_type!r} edge — use update_edge to change it, not insert_edge"
         )
     edge = ItemRelationship(
+        orgId=org_id,
         fromItemId=child_id,
         toItemId=parent_id,
         relationshipType=relationship_type,
@@ -118,6 +125,7 @@ def insert_edge(
 
 def update_edge(
     db: Session,
+    org_id: UUID,
     child_id: UUID,
     new_parent_id: UUID,
     relationship_type: str = "parent_of",
@@ -127,10 +135,10 @@ def update_edge(
     """Reclassify: point child_id at new_parent_id instead, whether or not it
     already had a parent. The edge keeps its id when it already existed."""
     _lock_hierarchy(db)
-    _validate_link(db, child_id, new_parent_id, relationship_type)
-    edge = _edge(db, child_id, relationship_type)
+    _validate_link(db, child_id, new_parent_id, relationship_type, org_id)
+    edge = _edge(db, child_id, relationship_type, org_id)
     if edge is None:
-        edge = ItemRelationship(fromItemId=child_id, relationshipType=relationship_type)
+        edge = ItemRelationship(orgId=org_id, fromItemId=child_id, relationshipType=relationship_type)
         db.add(edge)
     edge.toItemId = new_parent_id
     edge.relationshipMetadata = _metadata(confidence, reason)
@@ -138,12 +146,13 @@ def update_edge(
     return edge
 
 
-def delete_edge(db: Session, child_id: UUID, relationship_type: str = "parent_of") -> bool:
+def delete_edge(db: Session, org_id: UUID, child_id: UUID, relationship_type: str = "parent_of") -> bool:
     """Remove child_id's edge, making it a root again. True if one was removed."""
     _check_type(relationship_type)
     _lock_hierarchy(db)
     result = db.execute(
         delete(ItemRelationship).where(
+            ItemRelationship.orgId == org_id,
             ItemRelationship.fromItemId == child_id,
             ItemRelationship.relationshipType == relationship_type,
         )
@@ -151,7 +160,7 @@ def delete_edge(db: Session, child_id: UUID, relationship_type: str = "parent_of
     return result.rowcount > 0
 
 
-def delete_node(db: Session, item_id: UUID, relationship_type: str = "parent_of") -> dict:
+def delete_node(db: Session, org_id: UUID, item_id: UUID, relationship_type: str = "parent_of") -> dict:
     """Remove item_id from the tree: its children move up to its own parent
     (or become roots if it had none) instead of being deleted or orphaned.
     Relies on edges meaning "is a more specific variant of": skipping the
@@ -161,14 +170,18 @@ def delete_node(db: Session, item_id: UUID, relationship_type: str = "parent_of"
     Does not delete the menu_items row itself, only its place in the tree.
 
     Returns {"parent_id": <id or None>, "reparented_children": [<ids>]}.
+    Raises HierarchyError if the dish isn't in the caller's organization.
     """
     _check_type(relationship_type)
     _lock_hierarchy(db)
-    own_edge = _edge(db, item_id, relationship_type)
+    if not _item_exists(db, item_id, org_id):
+        raise HierarchyError(f"item_id {item_id} does not exist in menu_items")
+    own_edge = _edge(db, item_id, relationship_type, org_id)
     parent_id = own_edge.toItemId if own_edge is not None else None
     child_ids = list(
         db.scalars(
             select(ItemRelationship.fromItemId).where(
+                ItemRelationship.orgId == org_id,
                 ItemRelationship.toItemId == item_id,
                 ItemRelationship.relationshipType == relationship_type,
             )
@@ -177,8 +190,10 @@ def delete_node(db: Session, item_id: UUID, relationship_type: str = "parent_of"
 
     if own_edge is not None:
         db.delete(own_edge)
-    children = (ItemRelationship.toItemId == item_id) & (
-        ItemRelationship.relationshipType == relationship_type
+    children = (
+        (ItemRelationship.orgId == org_id)
+        & (ItemRelationship.toItemId == item_id)
+        & (ItemRelationship.relationshipType == relationship_type)
     )
     if parent_id is not None:
         db.execute(

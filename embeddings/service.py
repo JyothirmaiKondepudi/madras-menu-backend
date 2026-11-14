@@ -52,20 +52,21 @@ def upsert_embedding(
     return db.get(MenuItemEmbedding, item_id, populate_existing=True)
 
 
-def embed_menu_item(db: Session, item_id: UUID) -> MenuItemEmbedding | None:
-    """Returns None if item_id doesn't exist — the route turns that into a
-    404, same pattern as every other single-item route in this app."""
+def embed_menu_item(db: Session, item_id: UUID, org_id: UUID) -> MenuItemEmbedding | None:
+    """Returns None if item_id doesn't exist or belongs to another
+    organization — the route turns that into a 404, same pattern as every
+    other single-item route in this app."""
     item = db.get(MenuItem, item_id)
-    if item is None:
+    if item is None or item.orgId != org_id:
         return None
     text = build_embedding_text(item.name, item.course, item.cuisineTags)
     vector = generate_embedding(text)
     return upsert_embedding(db, item_id, vector, text)
 
 
-def search_similar(db: Session, query_text: str, limit: int = 5) -> list[dict]:
-    """Semantic search: embed query_text the same way dishes were embedded,
-    return the top-K closest existing dishes by cosine distance — the
+def search_similar(db: Session, query_text: str, org_id: UUID, limit: int = 5) -> list[dict]:
+    """Semantic search within one caterer's dishes: embed query_text the same
+    way dishes were embedded, return the top-K closest dishes by cosine distance — the
     retrieval step that finds e.g. the real "Tamarind rice" row for a query
     like "Tamarind infused rice with roasted peanuts and cashews"."""
     query_vector = generate_embedding(query_text)
@@ -76,6 +77,7 @@ def search_similar(db: Session, query_text: str, limit: int = 5) -> list[dict]:
             MenuItemEmbedding.embedding.cosine_distance(query_vector).label("distance"),
         )
         .join(MenuItem, MenuItem.id == MenuItemEmbedding.itemId)
+        .where(MenuItem.orgId == org_id)
         .order_by(MenuItemEmbedding.embedding.cosine_distance(query_vector))
         .limit(limit)
     ).all()

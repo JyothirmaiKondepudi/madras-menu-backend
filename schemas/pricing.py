@@ -8,10 +8,10 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from models.choices import (
-    Diet, EventType, LiveStationDiet, PriceWeight, PricingMethod, ServiceStyle, TaxMode,
+    Diet, EventType, LiveStationDiet, MealPeriod, PriceWeight, PricingMethod, ServiceStyle, TaxMode,
 )
 
 
@@ -79,10 +79,19 @@ class LiveStationCreate(BaseModel):
     region: str = Field(min_length=1, max_length=100)
     vegNonveg: LiveStationDiet
     description: str | None = None
-    pricePerPerson: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+    # None until the caterer sets a price
+    pricePerPerson: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+    mealPeriods: list[MealPeriod] = Field(default_factory=list)
     minGuests: int = Field(default=1, gt=0)
     equipmentNeeded: list[str] = Field(default_factory=list)
     active: bool = True
+
+    @field_validator("mealPeriods")
+    @classmethod
+    def unique_meal_periods(cls, value):
+        if len(set(value)) != len(value):
+            raise ValueError("meal periods must not repeat")
+        return value
 
 
 class ConditionalPriceInput(PricingInput):
