@@ -39,13 +39,27 @@ target_metadata = Base.metadata
 # ... etc.
 
 
-# The menu engine (madras-menu-engine) keeps its own migration history in
-# this database, in this table; it isn't one of the backend's tables.
-ENGINE_VERSION_TABLE = "engine_alembic_version"
+# The menu engine (madras-menu-engine) owns these tables and their
+# migrations (its revision is kept in engine_alembic_version). The backend
+# never creates, changes or drops them, even the ones it still has models
+# for until its dish routes are removed.
+ENGINE_OWNED_TABLES = {
+    "engine_alembic_version",
+    "menu_items",
+    "item_relationships",
+    "menu_item_embeddings",
+    "dish_aliases",
+    "ignored_dish_names",
+    "menus",
+    "menu_dishes",
+}
 
 
 def include_object(obj, name, type_, reflected, compare_to):
-    return not (type_ == "table" and name == ENGINE_VERSION_TABLE)
+    if type_ == "table":
+        return name not in ENGINE_OWNED_TABLES
+    table = getattr(obj, "table", None)
+    return table is None or table.name not in ENGINE_OWNED_TABLES
 
 
 def run_migrations_offline() -> None:
