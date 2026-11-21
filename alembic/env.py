@@ -39,29 +39,6 @@ target_metadata = Base.metadata
 # ... etc.
 
 
-# The menu engine (madras-menu-engine) owns these tables and their
-# migrations (its revision is kept in engine_alembic_version). The backend
-# never creates, changes or drops them, even the ones it still has models
-# for until its dish routes are removed.
-ENGINE_OWNED_TABLES = {
-    "engine_alembic_version",
-    "menu_items",
-    "item_relationships",
-    "menu_item_embeddings",
-    "dish_aliases",
-    "ignored_dish_names",
-    "menus",
-    "menu_dishes",
-}
-
-
-def include_object(obj, name, type_, reflected, compare_to):
-    if type_ == "table":
-        return name not in ENGINE_OWNED_TABLES
-    table = getattr(obj, "table", None)
-    return table is None or table.name not in ENGINE_OWNED_TABLES
-
-
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -78,7 +55,6 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
-        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -102,7 +78,7 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata, include_object=include_object
+            connection=connection, target_metadata=target_metadata
         )
 
         with context.begin_transaction():

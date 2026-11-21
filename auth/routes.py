@@ -17,7 +17,8 @@ def login(credentials: LoginRequest, db: Session = Depends(get_db)):
     user = authenticate_user(credentials.email, credentials.password, db)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token(user.userId)
+    # org and role are for the menu engine; see create_access_token
+    token = create_access_token(user.userId, org_id=user.userOrg, role=user.userRole)
     return TokenResponse(access_token=token)
 
 
