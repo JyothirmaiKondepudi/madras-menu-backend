@@ -52,6 +52,11 @@ class EventType(StrEnum):
     GRADUATION = "Graduation"
     HOUSEWARMING = "Housewarming"
     HIGH_TEA = "High Tea"
+    # from Madras's past menus; the menu engine has a layout for each
+    SANGEET = "Sangeet"
+    LATE_NIGHT_SNACKS = "Late-night Snacks"
+    ENGAGEMENT = "Engagement"
+    BRUNCH = "Brunch"
     OTHER = "Other"
 
 

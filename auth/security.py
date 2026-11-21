@@ -38,12 +38,25 @@ def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
-def create_access_token(user_id: UUID, expires_minutes: int | None = None) -> str:
+def create_access_token(
+    user_id: UUID,
+    expires_minutes: int | None = None,
+    org_id: UUID | None = None,
+    role: str | None = None,
+) -> str:
+    """`org` and `role` are added for the menu engine (madras-menu-engine),
+    which checks the same tokens but has its own database, so it can't look
+    the user up: it trusts these two until the token expires. This backend
+    still reads only `sub` and re-fetches the user on every request."""
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=expires_minutes if expires_minutes is not None else settings.JWT_EXPIRE_MINUTES
     )
     payload = {"sub": str(user_id), "exp": expire}
+    if org_id is not None:
+        payload["org"] = str(org_id)
+    if role is not None:
+        payload["role"] = role
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
